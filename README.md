@@ -250,6 +250,73 @@ Capable of
     - [x] Auto look at
     - [x] Idle eye movement
 
+## Quick Start
+
+> Run a **working AIRI web app with chat + voice (TTS) in 5 minutes**, using a MiniMax API key. Skip reading the rest of this README — come back later for the full feature list.
+
+### 1. Install pnpm (one-time)
+
+This monorepo uses pnpm-only features (`catalog:`, `shellEmulator`, `patchedDependencies`, `overrides`) — **npm and yarn classic are not supported**.
+
+The fastest way is the helper script shipped in this repo. From the repo root, after `git clone`:
+
+```bash
+node scripts/setup-pnpm.mjs            # installs the latest pnpm
+# or pin the version this repo was tested with:
+node scripts/setup-pnpm.mjs 10.32.1
+```
+
+If that fails (e.g. locked-down corporate machine), the script prints manual install commands for your platform. See [SETUP.md](./SETUP.md#1-prerequisites) for all 5 install options (helper / corepack / npm -g / official pwsh / official posix shell).
+
+### 2. Install dependencies and start the dev server
+
+```bash
+pnpm install
+pnpm -F @proj-airi/stage-web dev
+```
+
+Open `http://localhost:5173/` in your browser.
+
+On Windows you can also use the helper scripts at the repo root (no path editing needed):
+
+```powershell
+.\start-airi-web.ps1   # starts vite in a hidden window
+.\open-airi-web.ps1    # opens an isolated Edge profile
+.\stop-airi-web.ps1    # stops the vite process(es)
+```
+
+### 3. Configure the MiniMax API key
+
+1. In the running app, go to **Settings → Providers**.
+2. Find **MiniMax** (or **MiniMax Global** if your key is for the global region) and click it.
+3. Paste your API key (looks like `eyJhbGciOi…`) and click **Save / Validate**. The card turns green when the key is accepted.
+
+| Provider id | Endpoint | When to use |
+|-------------|----------|-------------|
+| `minimax` (MiniMax)        | `https://api.minimaxi.com/v1` | China region |
+| `minimax-global` (MiniMax Global) | `https://api.minimax.io/v1`   | Global region |
+
+The same key powers **both chat and voice (TTS)**.
+
+### 4. Enable TTS (voice output)
+
+1. **Settings → Speech / Voice**.
+2. Set **Active provider** = `MiniMax TTS`.
+3. Set **Model** = `speech-2.5-hd` (default).
+4. Pick a **Voice** (refresh after saving the API key).
+5. Save.
+
+### 5. Verify chat + voice
+
+- Type a sentence in the chat box → press Enter → streaming reply.
+- Click the **speaker icon** on a reply → it should speak through your default audio device.
+
+If chat works but TTS does not, re-check step 4. If TTS works but chat does not, re-check step 3 (most often the model field is empty).
+
+---
+
+For deeper details (Windows troubleshooting, helper script behavior, manual install commands), see **[SETUP.md](./SETUP.md)**.
+
 ## Development
 
 > For detailed instructions to develop this project, follow [CONTRIBUTING.md](./.github/CONTRIBUTING.md)

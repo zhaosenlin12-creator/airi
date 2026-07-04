@@ -7,6 +7,7 @@ import type { UnElevenLabsOptions } from 'unspeech'
 
 import type { EmotionPayload } from '../../constants/emotions'
 
+import { errorMessageFrom } from '@moeru/std'
 import { drizzle } from '@proj-airi/drizzle-duckdb-wasm'
 import { getImportUrlBundles } from '@proj-airi/drizzle-duckdb-wasm/bundles/import-url-browser'
 import { createLive2DLipSync } from '@proj-airi/model-driver-lipsync'
@@ -118,6 +119,8 @@ const speechStore = useSpeechStore()
 const { ssmlEnabled, activeSpeechProvider, activeSpeechModel, activeSpeechVoice, pitch } = storeToRefs(speechStore)
 const activeCardId = computed(() => activeCard.value?.name ?? 'default')
 const speechRuntimeStore = useSpeechRuntimeStore()
+const browserSpeechSynthesis = typeof window !== 'undefined' ? window.speechSynthesis : undefined
+const browserSpeechVoice = ref<SpeechSynthesisVoice>()
 
 const { currentMotion } = storeToRefs(useLive2d())
 
@@ -230,6 +233,59 @@ const playbackManager = createPlaybackManager<AudioBuffer>({
   ownerOverflowPolicy: 'steal-oldest',
 })
 
+function syncBrowserSpeechVoice() {
+  if (!browserSpeechSynthesis)
+    return
+
+  const selectedLanguage = speechStore.selectedLanguage || 'zh-CN'
+  const normalizedLanguage = selectedLanguage.toLowerCase()
+  const voices = browserSpeechSynthesis.getVoices()
+
+  browserSpeechVoice.value
+    = voices.find(voice => voice.lang.toLowerCase() === normalizedLanguage)
+      ?? voices.find(voice => voice.lang.toLowerCase().startsWith(normalizedLanguage.split('-')[0] || normalizedLanguage))
+      ?? voices[0]
+}
+
+async function speakWithBrowserTts(text: string): Promise<boolean> {
+  if (!browserSpeechSynthesis || typeof SpeechSynthesisUtterance === 'undefined')
+    return false
+
+  const content = text.trim()
+  if (!content)
+    return false
+
+  syncBrowserSpeechVoice()
+
+  return new Promise<boolean>((resolve) => {
+    const utterance = new SpeechSynthesisUtterance(content)
+    utterance.lang = speechStore.selectedLanguage || 'zh-CN'
+    utterance.rate = speechStore.rate || 1
+    utterance.pitch = 1 + ((pitch.value || 0) / 100)
+    utterance.volume = 1
+
+    if (browserSpeechVoice.value)
+      utterance.voice = browserSpeechVoice.value
+
+    utterance.onend = () => resolve(true)
+    utterance.onerror = (event) => {
+      console.error('[Stage] Browser TTS playback failed', event)
+      resolve(false)
+    }
+
+    try {
+      browserSpeechSynthesis.cancel()
+      browserSpeechSynthesis.speak(utterance)
+    }
+    catch (error) {
+      console.error('[Stage] Browser TTS invocation failed', {
+        error: errorMessageFrom(error) ?? 'Unknown error',
+      })
+      resolve(false)
+    }
+  })
+}
+
 const speechPipeline = createSpeechPipeline<AudioBuffer>({
   tts: async (request, signal) => {
     if (signal.aborted)
@@ -302,6 +358,12 @@ const speechPipeline = createSpeechPipeline<AudioBuffer>({
       : request.text
 
     try {
+      console.info('[Stage] Generating speech', {
+        provider: activeSpeechProvider.value,
+        model,
+        voice: voice.id,
+        textLength: request.text.length,
+      })
       const res = await generateSpeech({
         ...provider.speech(model, providerConfig),
         input,
@@ -314,7 +376,13 @@ const speechPipeline = createSpeechPipeline<AudioBuffer>({
       const audioBuffer = await audioContext.decodeAudioData(res)
       return audioBuffer
     }
-    catch {
+    catch (error) {
+      console.error('[Stage] Provider TTS failed', {
+        provider: activeSpeechProvider.value,
+        model,
+        voice: voice.id,
+        error: errorMessageFrom(error) ?? 'Unknown error',
+      })
       return null
     }
   },
@@ -439,14 +507,17 @@ function setupAnalyser() {
 }
 
 let currentChatIntent: ReturnType<typeof speechRuntimeStore.openIntent> | null = null
+const assistantResponseText = ref('')
 
 chatHookCleanups.push(onBeforeMessageComposed(async () => {
   playbackManager.stopAll('new-message')
+  browserSpeechSynthesis?.cancel()
 
   setupAnalyser()
   await setupLipSync()
   // Reset assistant caption for a new message
   assistantCaption.value = ''
+  assistantResponseText.value = ''
   try {
     postCaption({ type: 'caption-assistant', text: '' })
   }
@@ -479,6 +550,7 @@ chatHookCleanups.push(onBeforeSend(async () => {
 }))
 
 chatHookCleanups.push(onTokenLiteral(async (literal) => {
+  assistantResponseText.value += literal
   currentChatIntent?.writeLiteral(literal)
 }))
 
@@ -495,6 +567,19 @@ chatHookCleanups.push(onStreamEnd(async () => {
 chatHookCleanups.push(onAssistantResponseEnd(async (_message) => {
   currentChatIntent?.end()
   currentChatIntent = null
+
+  if (nowSpeaking.value)
+    return
+
+  const didSpeak = await speakWithBrowserTts(assistantResponseText.value)
+  if (!didSpeak) {
+    console.warn('[Stage] No audible TTS was produced', {
+      provider: activeSpeechProvider.value,
+      model: activeSpeechModel.value,
+      voice: activeSpeechVoice.value?.id,
+      textLength: assistantResponseText.value.length,
+    })
+  }
   // const res = await embed({
   //   ...transformersProvider.embed('Xenova/nomic-embed-text-v1'),
   //   input: message,
@@ -520,6 +605,7 @@ if (typeof window !== 'undefined') {
   events.forEach((event) => {
     window.addEventListener(event, resumeAudioContextOnInteraction, { once: true, passive: true })
   })
+  window.speechSynthesis?.addEventListener('voiceschanged', syncBrowserSpeechVoice)
 }
 
 onMounted(async () => {
@@ -553,6 +639,8 @@ function readRenderTargetRegionAtClientPoint(clientX: number, clientY: number, r
 
 onUnmounted(() => {
   resetLive2dLipSync()
+  browserSpeechSynthesis?.cancel()
+  window.speechSynthesis?.removeEventListener('voiceschanged', syncBrowserSpeechVoice)
   chatHookCleanups.forEach(dispose => dispose?.())
   viewUpdateCleanups.forEach(dispose => dispose?.())
 })

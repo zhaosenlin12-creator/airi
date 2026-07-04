@@ -60,10 +60,50 @@ export interface AiriCard extends Card {
   } & Card['extensions']
 }
 
+function normalizeCardsStorage(value: unknown): Map<string, AiriCard> {
+  if (value instanceof Map)
+    return value
+
+  if (Array.isArray(value)) {
+    return new Map(
+      value.filter((entry): entry is [string, AiriCard] =>
+        Array.isArray(entry)
+        && typeof entry[0] === 'string'
+        && entry[1] != null
+        && typeof entry[1] === 'object',
+      ),
+    )
+  }
+
+  if (value && typeof value === 'object') {
+    return new Map(
+      Object.entries(value).filter((entry): entry is [string, AiriCard] =>
+        typeof entry[0] === 'string'
+        && entry[1] != null
+        && typeof entry[1] === 'object',
+      ),
+    )
+  }
+
+  return new Map()
+}
+
 export const useAiriCardStore = defineStore('airi-card', () => {
   const { t } = useI18n()
 
-  const cards = useLocalStorageManualReset<Map<string, AiriCard>>('airi-cards', new Map())
+  const cards = useLocalStorageManualReset<Map<string, AiriCard>>('airi-cards', new Map(), {
+    serializer: {
+      read: (raw: string) => {
+        try {
+          return normalizeCardsStorage(JSON.parse(raw))
+        }
+        catch {
+          return new Map()
+        }
+      },
+      write: (value: Map<string, AiriCard>) => JSON.stringify(Object.fromEntries(value)),
+    },
+  })
   const activeCardId = useLocalStorageManualReset<string>('airi-card-active-id', 'default')
 
   const activeCard = computed(() => cards.value.get(activeCardId.value))
@@ -238,9 +278,19 @@ export const useAiriCardStore = defineStore('airi-card', () => {
     activeConsciousnessProvider.value = extension?.modules?.consciousness?.provider
     activeConsciousnessModel.value = extension?.modules?.consciousness?.model
 
-    activeSpeechProvider.value = extension?.modules?.speech?.provider
-    activeSpeechModel.value = extension?.modules?.speech?.model
-    activeSpeechVoiceId.value = extension?.modules?.speech?.voice_id
+    const cardSpeechProvider = extension?.modules?.speech?.provider?.trim()
+    const cardSpeechModel = extension?.modules?.speech?.model?.trim()
+    const cardSpeechVoiceId = extension?.modules?.speech?.voice_id?.trim()
+
+    // Keep the current speech pipeline when the active card does not define
+    // a complete TTS setup. This prevents personality cards from silently
+    // muting replies by overwriting the global speech settings with empty
+    // strings.
+    if (cardSpeechProvider && cardSpeechModel && cardSpeechVoiceId) {
+      activeSpeechProvider.value = cardSpeechProvider
+      activeSpeechModel.value = cardSpeechModel
+      activeSpeechVoiceId.value = cardSpeechVoiceId
+    }
 
     // Apply body model if the card has a display model configured.
     // NOTICE: must set via store property directly (not storeToRefs .value) so Pinia's

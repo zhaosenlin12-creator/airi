@@ -15,6 +15,9 @@ export const usePWAStore = defineStore('pwa', () => {
     if (import.meta.env.SSR) {
       return
     }
+    if (import.meta.env.DEV) {
+      return
+    }
     if (isEnvTruthy(import.meta.env.VITE_APP_TARGET_HUGGINGFACE_SPACE)) {
       return
     }

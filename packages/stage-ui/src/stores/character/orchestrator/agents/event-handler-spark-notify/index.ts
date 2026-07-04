@@ -3,7 +3,7 @@ import type { ChatProvider, ChatProviderWithExtraOptions, EmbedProvider, EmbedPr
 import type { Message } from '@xsai/shared-chat'
 
 import type { SparkNotifyCommandDraft } from '../../../../../tools'
-import type { StreamEvent } from '../../../../llm'
+import type { StreamEvent, StreamOptions } from '../../../../llm'
 
 import { nanoid } from 'nanoid'
 
@@ -23,12 +23,7 @@ export interface SparkNotifyAgentDeps {
     model: string,
     provider: ChatProvider,
     messages: Message[],
-    options: {
-      tools?: any[]
-      supportsTools?: boolean
-      waitForTools?: boolean
-      onStreamEvent?: (event: StreamEvent) => void | Promise<void>
-    },
+    options: Pick<StreamOptions, 'tools' | 'supportsTools' | 'waitForTools' | 'onStreamEvent' | 'providerId' | 'scope'>,
   ) => Promise<void>
   getActiveProvider: () => string | undefined
   getActiveModel: () => string | undefined
@@ -102,6 +97,8 @@ export function setupAgentSparkNotifyHandler(deps: SparkNotifyAgentDeps) {
     let fullText = ''
 
     await deps.stream(activeModel, chatProvider, [systemMessage, userMessage], {
+      providerId: activeProvider,
+      scope: 'consciousness',
       tools,
       supportsTools: true,
       waitForTools: true,

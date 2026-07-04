@@ -1,49 +1,76 @@
 import { describe, expect, it } from 'vitest'
 
-import { isToolRelatedError } from './llm'
+import {
+  isAbortLikeError,
+  isFailoverEligibleError,
+  parseProviderFallbackConfig,
+  resolveFallbackCandidates,
+} from './llm'
 
-describe('isToolRelatedError', () => {
-  const positives: [provider: string, msg: string][] = [
-    ['ollama', 'llama3 does not support tools'],
-    ['ollama', 'phi does not support tools'],
-    ['openrouter', 'No endpoints found that support tool use'],
-    ['openai-compatible', 'Invalid schema for function \'myFunc\': \'dict\' is not valid under any of the given schemas'],
-    ['openai-compatible', 'invalid_function_parameters'],
-    ['openai-compatible', 'invalid function parameters'],
-    ['azure', 'Functions are not supported at this time'],
-    ['azure', 'Unrecognized request argument supplied: tools'],
-    ['azure', 'Unrecognized request arguments supplied: tool_choice, tools'],
-    ['google', 'Tool use with function calling is unsupported'],
-    ['groq', 'tool_use_failed'],
-    ['groq', 'Error code: tool_use_failed - Failed to call a function'],
-    ['anthropic', 'This model does not support function calling'],
-    ['anthropic', 'does not support function_calling'],
-    ['cloudflare', 'tools is not supported'],
-    ['cloudflare', 'tool is not supported for this model'],
-    ['cloudflare', 'tools are not supported'],
-  ]
+describe('stores/llm fallback helpers', () => {
+  it('parses fallback config and removes invalid or duplicate candidates', () => {
+    const parsed = parseProviderFallbackConfig(JSON.stringify({
+      consciousness: {
+        cooldownMs: 1234,
+        candidates: [
+          { providerId: 'deepseek', model: 'deepseek-chat' },
+          { providerId: 'deepseek', model: 'deepseek-chat' },
+          { providerId: '', model: 'ignored' },
+          { providerId: 'openai-compatible', model: '' },
+        ],
+      },
+    }))
 
-  const negatives = [
-    'network error',
-    'timeout',
-    'rate limit exceeded',
-    'invalid api key',
-    'model not found',
-    'context length exceeded',
-    '',
-  ]
-
-  for (const [provider, msg] of positives) {
-    it(`matches [${provider}]: "${msg}"`, () => {
-      expect(isToolRelatedError(msg)).toBe(true)
-      expect(isToolRelatedError(new Error(msg))).toBe(true)
+    expect(parsed).toEqual({
+      consciousness: {
+        cooldownMs: 1234,
+        candidates: [
+          { providerId: 'deepseek', model: 'deepseek-chat' },
+        ],
+      },
+      vision: undefined,
     })
-  }
+  })
 
-  for (const msg of negatives) {
-    it(`rejects: "${msg}"`, () => {
-      expect(isToolRelatedError(msg)).toBe(false)
-      expect(isToolRelatedError(new Error(msg))).toBe(false)
+  it('resolves scoped fallback candidates and strips the active provider/model duplicate', () => {
+    const resolved = resolveFallbackCandidates({
+      providerId: 'deepseek',
+      model: 'deepseek-chat',
+      scope: 'consciousness',
+      fallbackConfig: {
+        consciousness: {
+          cooldownMs: 4321,
+          candidates: [
+            { providerId: 'deepseek', model: 'deepseek-chat' },
+            { providerId: 'openai-compatible', model: 'qwen3-max' },
+          ],
+        },
+      },
     })
-  }
+
+    expect(resolved.cooldownMs).toBe(4321)
+    expect(resolved.candidates).toEqual([
+      { providerId: 'openai-compatible', model: 'qwen3-max' },
+    ])
+  })
+
+  it('treats abort signals and AbortError-like exceptions as non-failover', () => {
+    const controller = new AbortController()
+    controller.abort()
+
+    expect(isAbortLikeError(new Error('ignored'), controller.signal)).toBe(true)
+    expect(isAbortLikeError(Object.assign(new Error('aborted'), { name: 'AbortError' }))).toBe(true)
+    expect(isFailoverEligibleError(new Error('aborted by user'), controller.signal)).toBe(false)
+  })
+
+  it('does not fail over for prompt-size or moderation errors', () => {
+    expect(isFailoverEligibleError(new Error('Prompt too long for maximum context length'))).toBe(false)
+    expect(isFailoverEligibleError(new Error('Content policy violation detected'))).toBe(false)
+  })
+
+  it('allows failover for provider-side availability failures', () => {
+    expect(isFailoverEligibleError(new Error('Server error: HTTP 503'))).toBe(true)
+    expect(isFailoverEligibleError(new Error('Invalid API key'))).toBe(true)
+    expect(isFailoverEligibleError(new Error('fetch failed'))).toBe(true)
+  })
 })

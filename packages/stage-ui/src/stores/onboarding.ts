@@ -5,8 +5,8 @@ import { computed, ref, watch } from 'vue'
 import { useAuthStore } from './auth'
 import { useProvidersStore } from './providers'
 
-const essentialProviderIds = ['openai', 'azure-openai', 'anthropic', 'google-generative-ai', 'openrouter-ai', 'ollama', 'deepseek', 'openai-compatible', 'official-provider'] as const
-const credentialBasedEssentialProviderIds = ['openai', 'azure-openai', 'anthropic', 'google-generative-ai', 'openrouter-ai', 'deepseek'] as const
+const essentialProviderIds = ['openai', 'azure-openai', 'anthropic', 'google-generative-ai', 'openrouter-ai', 'ollama', 'deepseek', 'openai-compatible', 'official-provider', 'minimax', 'minimax-global'] as const
+const credentialBasedEssentialProviderIds = ['openai', 'azure-openai', 'anthropic', 'google-generative-ai', 'openrouter-ai', 'deepseek', 'openai-compatible', 'minimax', 'minimax-global'] as const
 
 function hasNonEmptyText(value: unknown): boolean {
   return typeof value === 'string' && value.trim().length > 0
@@ -42,6 +42,10 @@ export const useOnboardingStore = defineStore('onboarding', () => {
     })
   })
 
+  const hasSetupReadyProvider = computed(() =>
+    hasEssentialProviderConfigured.value || hasEssentialProviderCredentialConfigured.value,
+  )
+
   // Check if first-time setup should be shown
   const skipOnboardingPath = ['/auth/sign-in', '/auth/callback']
   const needsOnboarding = computed(() =>
@@ -49,6 +53,7 @@ export const useOnboardingStore = defineStore('onboarding', () => {
     && !authStore.token
     && !hasSkippedSetup.value
     && !hasCompletedSetup.value
+    && !hasSetupReadyProvider.value
     && !skipOnboardingPath.includes(document.location.pathname),
   )
 
@@ -59,6 +64,12 @@ export const useOnboardingStore = defineStore('onboarding', () => {
       showingSetup.value = false
     }
   })
+
+  watch(hasSetupReadyProvider, (ready) => {
+    if (ready) {
+      showingSetup.value = false
+    }
+  }, { immediate: true })
 
   // Mark setup as completed
   function markSetupCompleted() {
@@ -91,6 +102,7 @@ export const useOnboardingStore = defineStore('onboarding', () => {
     showingSetup,
     hasEssentialProviderConfigured,
     hasEssentialProviderCredentialConfigured,
+    hasSetupReadyProvider,
     needsOnboarding,
 
     markSetupCompleted,

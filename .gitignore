@@ -133,3 +133,12 @@ apps/stage-tamagotchi/electron.vite.config.*.mjs
 
 # Tools - Obsidian
 .obsidian/
+
+# Local dev runtime artifacts
+.run/
+
+# Env files (clone-time to be created manually)
+.env
+.env.*
+!.env.example
+

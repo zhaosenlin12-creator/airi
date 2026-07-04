@@ -1244,6 +1244,111 @@ export const useProvidersStore = defineStore('providers', () => {
         },
       },
     },
+    'minimax-audio-speech': {
+      id: 'minimax-audio-speech',
+      category: 'speech',
+      tasks: ['text-to-speech'],
+      nameKey: 'settings.pages.providers.provider.minimax-audio-speech.title',
+      name: 'MiniMax TTS',
+      descriptionKey: 'settings.pages.providers.provider.minimax-audio-speech.description',
+      description: 'api.minimaxi.com',
+      iconColor: 'i-lobe-icons:minimax',
+      defaultOptions: () => ({
+        baseUrl: 'https://api.minimaxi.com/v1/',
+        model: 'speech-2.5-hd',
+        voice: 'female-1',
+      }),
+      createProvider: async (config) => {
+        const baseUrl = typeof config.baseUrl === 'string' && config.baseUrl.trim() ? config.baseUrl.trim() : 'https://api.minimaxi.com/v1/'
+        const apiKey = typeof config.apiKey === 'string' ? config.apiKey.trim() : ''
+        const speechBaseUrl = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`
+
+        function hexToBytes(hex: string): Uint8Array {
+          const normalizedHex = hex.trim().replace(/^0x/i, '')
+          if (normalizedHex.length % 2 !== 0)
+            throw new Error('Invalid MiniMax audio hex payload')
+
+          const bytes = new Uint8Array(normalizedHex.length / 2)
+          for (let index = 0; index < normalizedHex.length; index += 2) {
+            bytes[index / 2] = Number.parseInt(normalizedHex.slice(index, index + 2), 16)
+          }
+          return bytes
+        }
+
+        const provider: SpeechProvider = {
+          speech: (model: string) => ({
+            apiKey,
+            baseURL: speechBaseUrl,
+            model,
+            fetch: async (_input: RequestInfo | URL, init?: RequestInit) => {
+              const response = await fetch(`${speechBaseUrl}t2a_v2`, {
+                method: 'POST',
+                headers: {
+                  'content-type': 'application/json',
+                  'authorization': `Bearer ${apiKey}`,
+                },
+                body: init?.body,
+              })
+
+              const json = await response.json()
+              const hexAudio = json?.data?.audio || json?.data?.audio_hex || json?.data?.audioData || json?.data?.base64_audio || json?.audio || json?.result?.audio
+              if (!response.ok) {
+                throw new Error(json?.base_resp?.status_msg || json?.message || `MiniMax TTS failed: ${response.status} ${response.statusText}`)
+              }
+              if (!hexAudio || typeof hexAudio !== 'string') {
+                throw new Error('MiniMax TTS returned no audio data')
+              }
+
+              const bytes = hexToBytes(hexAudio)
+              const audioBuffer = new Uint8Array(bytes.byteLength)
+              audioBuffer.set(bytes)
+              return new Response(new Blob([audioBuffer], { type: 'audio/wav' }), {
+                status: 200,
+                headers: {
+                  'content-type': 'audio/wav',
+                },
+              })
+            },
+          }),
+        }
+
+        return provider
+      },
+      capabilities: {
+        listModels: async () => [
+          {
+            id: 'speech-2.5-hd',
+            name: 'speech-2.5-hd',
+            provider: 'minimax-audio-speech',
+            description: 'MiniMax speech-2.5-hd',
+            contextLength: 0,
+            deprecated: false,
+          },
+        ],
+        listVoices: async () => [
+          {
+            id: 'female-1',
+            name: 'female-1',
+            provider: 'minimax-audio-speech',
+            languages: [{ code: 'zh-CN', title: 'Chinese' }],
+          },
+        ],
+      },
+      validators: {
+        chatPingCheckAvailable: false,
+        validateProviderConfig: (config) => {
+          const errors = [
+            !config.apiKey && new Error('API key is required.'),
+          ].filter(Boolean)
+
+          return {
+            errors,
+            reason: errors.filter(e => e).map(e => String(e)).join(', ') || '',
+            valid: !!config.apiKey,
+          }
+        },
+      },
+    },
     'alibaba-cloud-model-studio': {
       id: 'alibaba-cloud-model-studio',
       category: 'speech',

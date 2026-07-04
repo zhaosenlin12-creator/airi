@@ -16,6 +16,8 @@ import { routes } from 'vue-router/auto-routes'
 import App from './App.vue'
 
 import { i18n } from './modules/i18n'
+import { cleanupLocalDevBrowserState } from './modules/local-dev-browser-cleanup'
+import { applyLocalProviderBootstrap } from './modules/local-provider-bootstrap'
 
 import '@proj-airi/font-cjkfonts-allseto/index.css'
 import '@proj-airi/font-xiaolai/index.css'
@@ -26,6 +28,10 @@ import './styles/main.css'
 import 'uno.css'
 
 const pinia = createPinia()
+
+void cleanupLocalDevBrowserState()
+
+applyLocalProviderBootstrap()
 
 // TODO: vite-plugin-vue-layouts is long deprecated, replace with another layout solution
 const routeRecords = setupLayouts(routes as RouteRecordRaw[])

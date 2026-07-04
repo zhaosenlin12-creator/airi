@@ -85,6 +85,8 @@ export function useVisionInference() {
     try {
       await llmStore.stream(activeModel.value, visionProvider, messages, {
         abortSignal: abortController.signal,
+        providerId: activeProvider.value,
+        scope: 'vision',
         onStreamEvent: (event) => {
           if (event.type === 'text-delta') {
             buffer += event.text

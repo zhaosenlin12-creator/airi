@@ -130,8 +130,7 @@ live2d:
     title: FPS
     description: Limit rendering frame rate
     options:
-      unlimited: âˆž
-microphone: Microphone
+      unlimited: âˆ?microphone: Microphone
 models: Model
 pages:
   account:
@@ -670,8 +669,7 @@ pages:
                       integration guide</a>.
     common:
       continueAnyway: Continue Anyway
-      goToModelSelection: Select Model â†’
-      fields:
+      goToModelSelection: Select Model â†?      fields:
         field:
           api-key:
             label: API Key Input
@@ -852,6 +850,9 @@ pages:
       minimax-global:
         description: minimax.io
         title: MiniMax Global
+      minimax-audio-speech:
+        description: api.minimaxi.com TTS
+        title: MiniMax TTS
       mistral:
         description: mistral.ai
         title: Mistral

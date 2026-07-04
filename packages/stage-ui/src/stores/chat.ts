@@ -26,6 +26,7 @@ import { useConsciousnessStore } from './modules/consciousness'
 interface SendOptions {
   model: string
   chatProvider: ChatProvider
+  providerId?: string
   providerConfig?: Record<string, unknown>
   attachments?: { type: 'image', data: string, mimeType: string }[]
   tools?: StreamOptions['tools']
@@ -208,7 +209,8 @@ export const useChatOrchestratorStore = defineStore('chat-orchestrator', () => {
       })
       const sessionMessagesForSend = chatSession.getSessionMessages(sessionId)
 
-      const categorizer = createStreamingCategorizer(activeProvider.value)
+      let effectiveProviderId = options.providerId || activeProvider.value
+      let categorizer = createStreamingCategorizer(effectiveProviderId)
       let streamPosition = 0
 
       const parser = useLlmmarkerParser({
@@ -249,7 +251,7 @@ export const useChatOrchestratorStore = defineStore('chat-orchestrator', () => {
           if (isStaleGeneration())
             return
 
-          const finalCategorization = categorizeResponse(fullText, activeProvider.value)
+          const finalCategorization = categorizeResponse(fullText, effectiveProviderId)
 
           buildingMessage.categorization = {
             speech: finalCategorization.speech,
@@ -343,10 +345,19 @@ export const useChatOrchestratorStore = defineStore('chat-orchestrator', () => {
 
       await llmStore.stream(options.model, options.chatProvider, newMessages as Message[], {
         headers,
+        providerId: options.providerId ?? activeProvider.value,
+        scope: 'consciousness',
         tools: options.tools,
         // NOTICE: xsai stream may emit `finish` before tool steps continue, so keep waiting until
         // the final non-tool finish to avoid ending the chat turn with no assistant reply.
         waitForTools: true,
+        onAttemptStart: ({ providerId }) => {
+          if (!providerId || providerId === effectiveProviderId || fullText)
+            return
+
+          effectiveProviderId = providerId
+          categorizer = createStreamingCategorizer(effectiveProviderId)
+        },
         onStreamEvent: async (event: StreamEvent) => {
           switch (event.type) {
             case 'tool-call':

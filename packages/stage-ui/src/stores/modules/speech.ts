@@ -101,6 +101,22 @@ export const useSpeechStore = defineStore('speech', () => {
     catch (error) {
       console.error(`Error fetching voices for ${provider}:`, error)
       speechProviderError.value = error instanceof Error ? error.message : 'Unknown error'
+      if (provider === 'microsoft-speech') {
+        const fallbackVoiceId = activeSpeechVoiceId.value || 'zh-CN-XiaoxiaoNeural'
+        availableVoices.value = {
+          ...availableVoices.value,
+          [provider]: [{
+            id: fallbackVoiceId,
+            name: fallbackVoiceId,
+            provider: 'microsoft-speech',
+            languages: [{ code: selectedLanguage.value || 'zh-CN', title: 'Chinese' }],
+            gender: 'female',
+          }],
+        }
+        if (!activeSpeechVoice.value) {
+          activeSpeechVoice.value = availableVoices.value[provider]?.[0]
+        }
+      }
       return []
     }
     finally {

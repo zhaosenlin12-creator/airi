@@ -14,13 +14,55 @@ A copy of [moeru-ai/airi](https://github.com/moeru-ai/airi) with stable **chat**
 
 On Windows, run everything in **PowerShell 7+** (the helper `.ps1` scripts use `Get-NetTCPConnection` / `Get-CimInstance`).
 
-If you don't have pnpm installed:
+
+> **npm is not supported.** This monorepo uses pnpm-only features: catalog: versions, shellEmulator: true, patchedDependencies, and overrides — npm does not understand any of them. yarn classic does not either.
+
+### Installing pnpm
+
+Pick ONE of these. The first one is the easiest on a fresh machine — we ship a helper script that does it for you.
+
+**Option A — the helper script (recommended):**
+
+```bash
+# from the repo root, after `git clone`:
+node scripts/setup-pnpm.mjs            # installs the latest pnpm
+# or pin the version this repo was tested with:
+node scripts/setup-pnpm.mjs 10.32.1
+```
+
+The script tries, in order:
+1. `corepack enable` + `corepack prepare pnpm@<ver> --activate` (uses Node bundled Corepack, no extra install)
+2. `npm install -g pnpm@<ver>` (fallback if Corepack cannot write to the global Node dir)
+3. Print manual install instructions and exit (if both fail — usually a corporate proxy or locked-down machine)
+
+It never runs the official `get.pnpm.io` installer automatically, because that script modifies your shell profile / PATH and we do not want to do that without your consent.
+
+**Option B — Corepack by hand:**
 
 ```bash
 corepack enable
-corepack prepare pnpm@latest --activate
+corepack prepare pnpm@10 --activate
 ```
 
+(`pnpm@10` matches the `packageManager` field in `package.json` and the `engines.pnpm` constraint.)
+
+**Option C — npm install -g (works too):**
+
+```bash
+npm install -g pnpm
+```
+
+**Option D — the official installer (PowerShell, no admin, installs to `%LOCALAPPDATA%`):**
+
+```powershell
+iwr https://get.pnpm.io/install.ps1 -useb | iex
+```
+
+**Option E — POSIX shell (no sudo, installs to `~/.local`):**
+
+```bash
+curl -fsSL https://get.pnpm.io/install.sh | sh -
+```
 ---
 
 ## 2. Clone
@@ -34,6 +76,7 @@ Repository layout you'll touch:
 
 - `apps/stage-web` — Vite + Vue 3 web app (what you run)
 - `packages/stage-ui` — shared components / stores / composables
+- `scripts/setup-pnpm.mjs` — auto-installs pnpm (Section 1, Option A)
 - `start-airi-web.ps1` / `stop-airi-web.ps1` / `open-airi-web.ps1` — local lifecycle scripts (Windows)
 - `SETUP.md` — this file
 

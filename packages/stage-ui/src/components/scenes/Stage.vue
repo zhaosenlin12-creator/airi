@@ -6,6 +6,7 @@ import type { SpeechProviderWithExtraOptions } from '@xsai-ext/providers/utils'
 import type { UnElevenLabsOptions } from 'unspeech'
 
 import type { EmotionPayload } from '../../constants/emotions'
+import type { YXZInteractionStatus } from './YXZImageScene.vue'
 
 import { errorMessageFrom } from '@moeru/std'
 import { drizzle } from '@proj-airi/drizzle-duckdb-wasm'
@@ -111,6 +112,8 @@ viewUpdateCleanups.push(live2dStore.onShouldUpdateView(async () => {
 
 const audioAnalyser = ref<AnalyserNode>()
 const nowSpeaking = ref(false)
+const yxzInteractionStatus = ref<YXZInteractionStatus>('idle')
+let yxzStatusResetTimer: ReturnType<typeof setTimeout> | undefined
 const lipSyncStarted = ref(false)
 const lipSyncLoopId = ref<number>()
 const live2dLipSync = ref<Live2DLipSync>()
@@ -125,6 +128,18 @@ const browserSpeechSynthesis = typeof window !== 'undefined' ? window.speechSynt
 const browserSpeechVoice = ref<SpeechSynthesisVoice>()
 
 const { currentMotion } = storeToRefs(useLive2d())
+
+function setYXZInteractionStatus(status: YXZInteractionStatus) {
+  if (yxzStatusResetTimer)
+    clearTimeout(yxzStatusResetTimer)
+  yxzInteractionStatus.value = status
+  if (status === 'success') {
+    yxzStatusResetTimer = setTimeout(() => {
+      yxzInteractionStatus.value = 'idle'
+      yxzStatusResetTimer = undefined
+    }, 2400)
+  }
+}
 
 const emotionsQueue = createQueue<EmotionPayload>({
   handlers: [
@@ -404,10 +419,12 @@ playbackManager.onEnd(({ item }) => {
 
   nowSpeaking.value = false
   mouthOpenSize.value = 0
+  setYXZInteractionStatus('success')
 })
 
 playbackManager.onStart(({ item }) => {
   nowSpeaking.value = true
+  setYXZInteractionStatus('speaking')
   // NOTICE: postCaption and postPresent may throw errors if the BroadcastChannel is closed
   // (e.g., when navigating away from the page). We wrap these in try-catch to prevent
   // breaking playback when the channel is unavailable.
@@ -512,6 +529,7 @@ let currentChatIntent: ReturnType<typeof speechRuntimeStore.openIntent> | null =
 const assistantResponseText = ref('')
 
 chatHookCleanups.push(onBeforeMessageComposed(async () => {
+  setYXZInteractionStatus('listening')
   playbackManager.stopAll('new-message')
   browserSpeechSynthesis?.cancel()
 
@@ -548,10 +566,13 @@ chatHookCleanups.push(onBeforeMessageComposed(async () => {
 }))
 
 chatHookCleanups.push(onBeforeSend(async () => {
+  setYXZInteractionStatus('thinking')
   currentMotion.value = { group: EmotionThinkMotionName }
 }))
 
 chatHookCleanups.push(onTokenLiteral(async (literal) => {
+  if (!nowSpeaking.value)
+    setYXZInteractionStatus('thinking')
   assistantResponseText.value += literal
   currentChatIntent?.writeLiteral(literal)
 }))
@@ -573,7 +594,9 @@ chatHookCleanups.push(onAssistantResponseEnd(async (_message) => {
   if (nowSpeaking.value)
     return
 
+  setYXZInteractionStatus('speaking')
   const didSpeak = await speakWithBrowserTts(assistantResponseText.value)
+  setYXZInteractionStatus(didSpeak ? 'success' : 'idle')
   if (!didSpeak) {
     console.warn('[Stage] No audible TTS was produced', {
       provider: activeSpeechProvider.value,
@@ -640,6 +663,8 @@ function readRenderTargetRegionAtClientPoint(clientX: number, clientY: number, r
 }
 
 onUnmounted(() => {
+  if (yxzStatusResetTimer)
+    clearTimeout(yxzStatusResetTimer)
   resetLive2dLipSync()
   browserSpeechSynthesis?.cancel()
   window.speechSynthesis?.removeEventListener('voiceschanged', syncBrowserSpeechVoice)
@@ -687,6 +712,7 @@ defineExpose({
         min-w="50% <lg:full" min-h="100 sm:100"
         h-full w-full flex-1
         :model-src="stageModelSelectedUrl"
+        :status="yxzInteractionStatus"
         :paused="paused"
         :x-offset="xOffset"
         :y-offset="yOffset"

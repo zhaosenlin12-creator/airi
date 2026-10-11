@@ -10,6 +10,7 @@ import {
   getYXZPrintApiBase,
   previewImageSrc,
 } from '../../composables/use-yxz-print-preview'
+import YXZCreationMessageCard from './YXZCreationMessageCard.vue'
 
 const emit = defineEmits<{
   status: [status: YXZInteractionStatus]
@@ -38,6 +39,7 @@ const options = [
 
 const buttonLabel = computed(() => isLoading.value ? '正在生成…' : '生成预览')
 const modelButtonLabel = computed(() => isModelLoading.value ? `正在制作 ${modelProgress.value.percent}%` : '把这个方案做成 3D')
+const selectedPreview = computed(() => previews.value.find(preview => preview.index === selectedIndex.value))
 
 function toggleOption(option: string) {
   selectedOptions.value = selectedOptions.value.includes(option)
@@ -184,6 +186,16 @@ onUnmounted(() => controller.value?.abort())
           <figcaption>{{ preview.caption }}</figcaption>
         </figure>
       </div>
+      <YXZCreationMessageCard
+        v-if="selectedPreview"
+        :preview-src="selectedPreview.src"
+        :caption="selectedPreview.caption"
+        :description="description"
+        :model-url="model?.modelUrl"
+        :stl-url="model?.stlUrl"
+        @adopt="emit('status', 'success')"
+        @redescribe="model = undefined"
+      />
       <div v-if="previews.length" class="yxz-print-model-actions">
         <button type="button" class="yxz-print-submit" :disabled="isModelLoading || selectedIndex === undefined" @click="generateModel">
           {{ modelButtonLabel }}
@@ -192,11 +204,7 @@ onUnmounted(() => controller.value?.abort())
           <span :style="{ width: `${modelProgress.percent}%` }" />
           <small>{{ modelProgress.message }}</small>
         </div>
-        <div v-if="model" class="yxz-print-model-result">
-          <span>3D 模型已生成</span>
-          <a :href="model.modelUrl" target="_blank" rel="noreferrer">打开 GLB 预览</a>
-          <a :href="model.stlUrl" target="_blank" rel="noreferrer">下载 STL</a>
-        </div>
+        <div v-if="model" class="yxz-print-model-result">3D 模型已生成，可继续预览或下载 STL。</div>
       </div>
       <small class="yxz-print-endpoint">预览服务：{{ getYXZPrintApiBase() }}</small>
     </section>

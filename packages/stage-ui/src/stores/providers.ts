@@ -48,6 +48,7 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { getProviderValidationIntervalMs, listProviders as listDefinedProviders, ProviderValidationCheck } from '../libs/providers'
+import { buildVoiceboxTtsBody } from '../utils/voicebox-tts'
 import { getKokoroWorker } from '../workers/kokoro'
 import { getDefaultKokoroModel, KOKORO_MODELS, kokoroModelsToModelInfo } from '../workers/kokoro/constants'
 import { useAuthStore } from './auth'
@@ -287,6 +288,133 @@ export const useProvidersStore = defineStore('providers', () => {
           reason: '',
           valid: true,
         }),
+      },
+    },
+    'voicebox-local': {
+      id: 'voicebox-local',
+      category: 'speech',
+      tasks: ['text-to-speech', 'tts'],
+      nameKey: 'settings.pages.providers.provider.voicebox-local.title',
+      name: 'Voicebox (Local)',
+      descriptionKey: 'settings.pages.providers.provider.voicebox-local.description',
+      description: 'Local Voicebox REST API',
+      icon: 'i-solar:microphone-3-bold-duotone',
+      defaultOptions: () => ({
+        baseUrl: 'http://127.0.0.1:17493',
+        model: 'qwen-custom-voice-1.7B',
+        modelSize: '1.7B',
+        instruct: '温暖、活泼、亲切，带一点可爱的卡通感，语速自然，像宜小智在和用户面对面交流。',
+      }),
+      requiresCredentials: false,
+      createProvider: async (config) => {
+        const baseUrl = typeof config.baseUrl === 'string' && config.baseUrl.trim()
+          ? config.baseUrl.trim().replace(/\/$/u, '')
+          : 'http://127.0.0.1:17493'
+        const defaultProfileId = typeof config.profileId === 'string' ? config.profileId.trim() : ''
+        const modelSize = config.modelSize === '0.6B' ? '0.6B' : '1.7B'
+        const instruct = typeof config.instruct === 'string' ? config.instruct : undefined
+
+        const provider: SpeechProvider = {
+          speech: (model: string) => ({
+            baseURL: `${baseUrl}/`,
+            model,
+            fetch: async (_input: RequestInfo | URL, init?: RequestInit) => {
+              const rawBody = typeof init?.body === 'string' && init.body.length > 0 ? init.body : undefined
+              const voiceboxBody = buildVoiceboxTtsBody(rawBody, {
+                defaultProfileId,
+                modelSize,
+                instruct,
+              })
+              if (!voiceboxBody.profile_id) {
+                throw new Error('Voicebox 尚未选择声音档案，请先在 Voicebox 创建 Qwen CustomVoice 的 Eric 声音并在宜小智设置中选择。')
+              }
+
+              const response = await fetch(`${baseUrl}/generate/stream`, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify(voiceboxBody),
+                signal: init?.signal,
+              })
+              if (!response.ok) {
+                let detail = ''
+                try {
+                  detail = await response.text()
+                }
+                catch {
+                  detail = ''
+                }
+                throw new Error(`Voicebox TTS 生成失败（HTTP ${response.status}）${detail ? `：${detail.slice(0, 180)}` : ''}`)
+              }
+              return response
+            },
+          }),
+        }
+
+        return provider
+      },
+      capabilities: {
+        listModels: async () => [
+          {
+            id: 'qwen-custom-voice-1.7B',
+            name: 'Qwen CustomVoice 1.7B',
+            provider: 'voicebox-local',
+            description: '推荐：中文男声 Eric，支持自然语言语气控制',
+            contextLength: 0,
+            deprecated: false,
+          },
+          {
+            id: 'qwen-custom-voice-0.6B',
+            name: 'Qwen CustomVoice 0.6B',
+            provider: 'voicebox-local',
+            description: '轻量版本，适合显存较小的 Windows 设备',
+            contextLength: 0,
+            deprecated: false,
+          },
+        ],
+        listVoices: async (config) => {
+          const baseUrl = typeof config.baseUrl === 'string' && config.baseUrl.trim()
+            ? config.baseUrl.trim().replace(/\/$/u, '')
+            : 'http://127.0.0.1:17493'
+          const response = await fetch(`${baseUrl}/profiles`)
+          if (!response.ok)
+            throw new Error(`Voicebox 声音档案不可用（HTTP ${response.status}）`)
+
+          const raw: unknown = await response.json()
+          if (!Array.isArray(raw))
+            return []
+
+          return raw.flatMap((profile) => {
+            if (!profile || typeof profile !== 'object')
+              return []
+            const item = profile as Record<string, unknown>
+            if (typeof item.id !== 'string' || typeof item.name !== 'string')
+              return []
+            const language = typeof item.language === 'string' ? item.language : 'zh'
+            const presetVoice = typeof item.preset_voice_id === 'string' ? item.preset_voice_id : ''
+            return [{
+              id: item.id,
+              name: item.name,
+              provider: 'voicebox-local',
+              description: presetVoice
+                ? `Voicebox 预置音色：${presetVoice}${presetVoice === 'Eric' ? '（推荐宜小智）' : ''}`
+                : (typeof item.description === 'string' ? item.description : 'Voicebox 本地声音档案'),
+              gender: 'male',
+              languages: [{ code: language, title: language === 'zh' ? 'Chinese' : language }],
+            }]
+          })
+        },
+      },
+      validators: {
+        chatPingCheckAvailable: false,
+        validateProviderConfig: (config) => {
+          const baseUrl = typeof config.baseUrl === 'string' ? config.baseUrl.trim() : ''
+          const errors = [!baseUrl && new Error('Voicebox Base URL is required.')].filter(Boolean) as Error[]
+          return {
+            errors,
+            reason: errors.map(error => error.message).join(', '),
+            valid: errors.length === 0,
+          }
+        },
       },
     },
     'app-local-audio-speech': buildOpenAICompatibleProvider({

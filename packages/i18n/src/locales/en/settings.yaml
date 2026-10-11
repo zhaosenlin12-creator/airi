@@ -853,6 +853,16 @@ pages:
       minimax-audio-speech:
         description: api.minimaxi.com TTS
         title: MiniMax TTS
+      voicebox-local:
+        description: Local Voicebox REST API
+        fields:
+          field:
+            voice:
+              description: Select a Voicebox profile. Eric is recommended for YXZ.
+              label: YXZ voice profile
+        playground:
+          default-text: Hello! I am YXZ. Tell me what you would like to create.
+        title: Voicebox (Local)
       mistral:
         description: mistral.ai
         title: Mistral

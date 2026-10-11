@@ -56,6 +56,26 @@
 - 生成成功后提供 GLB 预览和 STL 下载入口；本阶段仍不自动打开切片软件，也不直接触发打印。
 - 3D 任务仍由显式按钮触发，失败只在面板内提示，不阻塞聊天主流程。
 
+### 切片 7：Voicebox 宜小智男声
+
+- 新增 `voicebox-local` 语音提供商，调用 Voicebox 本地 `POST /generate/stream`，兼容浏览器和 Windows 桌面容器。
+- 默认使用 Qwen CustomVoice 1.7B，推荐在 Voicebox 中建立中文男声 `Eric` 档案；该音色明亮、有活力，适合宜小智的卡通感。
+- 将上游 OpenAI 风格 TTS 请求转换为 Voicebox 请求，默认语气为“温暖、活泼、亲切，带一点可爱的卡通感”。
+- 通过 Voicebox `/profiles` 自动发现本地声音档案；Voicebox 未启动时只提示配置问题，不影响 AIRI 其他功能。
+
+#### Voicebox 验收准备
+
+1. Windows 安装并启动 Voicebox，保持本地 API `http://127.0.0.1:17493` 可访问。
+2. 在 Voicebox → Profiles 创建 `Qwen CustomVoice` 档案，选择中文男声 `Eric`，建议模型为 1.7B。
+3. 打开 AIRI 设置 → Speech → Voicebox（Local），刷新声音档案并选择刚创建的 Eric 档案。
+4. 先在 Voicebox provider playground 播放一句测试文本，再回到宜小智对话验证整段 TTS。
+
+### 切片 8：创作方案消息卡片
+
+- 新增宜小智创作方案卡片，包含预览图、方案描述、“采用这个方案”和“重新描述”。
+- 3D 生成成功后，卡片继续提供 GLB 预览和 STL 下载入口。
+- 当前卡片先挂载在创作面板内，下一步再把它提升为聊天历史中的持久化消息类型。
+
 ## 本阶段验收
 
 - [x] `pnpm -F @proj-airi/stage-ui typecheck`
@@ -68,6 +88,9 @@
 - [x] 预览与 3D 任务适配器单测：4 项通过。
 - [x] 3D 任务进度字段与 Cartoon Print Studio `progress.py` 的 `percent / message / step` 对齐。
 - [x] 3D 结果链接已接入面板，未自动执行切片或打印。
+- [x] Voicebox TTS 请求适配器测试：2 项通过。
+- [x] `stage-pages` typecheck 通过，Voicebox 设置页可被路由发现。
+- [x] 创作方案卡片已接入预览面板，支持采用/重新描述。
 - [x] `pnpm -F @proj-airi/stage-web build` 成功；保留现有构建警告。
 - [x] 未修改 AIRI 工作区中已有的语音、providers、国际化等未提交变更。
 
@@ -77,8 +100,7 @@
 
 ## 下一阶段
 
-1. 宜小智对话面板与状态气泡的视觉细化。
-2. 把预览结果接入聊天消息卡片，并支持“采用这个方案 / 重新描述”。
-3. 把 3D 结果接入聊天消息卡片，支持“采用这个方案 / 重新描述”。
-4. 添加多轮确认数据结构和用户需求记忆。
-5. 最后接入打开切片软件、打印确认和取件流程。
+1. 将创作方案卡片提升为聊天历史中的持久化消息类型。
+2. 增加多轮确认数据结构和用户需求记忆。
+3. 添加 Voicebox 配置向导：检测服务、列出声音档案、引导创建 Eric 档案。
+4. 最后接入打开切片软件、打印确认和取件流程。

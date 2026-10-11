@@ -7,14 +7,14 @@ import { computed, watch } from 'vue'
 
 import { DisplayModelFormat, useDisplayModelsStore } from '../display-models'
 
-export type StageModelRenderer = 'live2d' | 'vrm' | 'disabled' | undefined
+export type StageModelRenderer = 'image' | 'live2d' | 'vrm' | 'disabled' | undefined
 
 export const useSettingsStageModel = defineStore('settings-stage-model', () => {
   const displayModelsStore = useDisplayModelsStore()
   let stageModelUpdateSequence = 0
   const stageModelStorageKey = 'settings/stage/model'
 
-  const stageModelSelectedState = useLocalStorageManualReset<string>(stageModelStorageKey, 'preset-live2d-1')
+  const stageModelSelectedState = useLocalStorageManualReset<string>(stageModelStorageKey, 'preset-yxz')
   const stageModelSelected = computed<string>({
     get: () => stageModelSelectedState.value,
     set: (value) => {
@@ -63,6 +63,9 @@ export const useSettingsStageModel = defineStore('settings-stage-model', () => {
     }
 
     switch (model.format) {
+      case DisplayModelFormat.Image:
+        stageModelRenderer.value = 'image'
+        break
       case DisplayModelFormat.Live2dZip:
         stageModelRenderer.value = 'live2d'
         break

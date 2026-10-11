@@ -25,6 +25,8 @@ import { generateSpeech } from '@xsai/generate-speech'
 import { storeToRefs } from 'pinia'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 
+import YXZImageScene from './YXZImageScene.vue'
+
 import { useDelayMessageQueue, useEmotionsMessageQueue } from '../../composables/queues'
 import { useAuthProviderSync } from '../../composables/use-auth-provider-sync'
 import { llmInferenceEndToken } from '../../constants'
@@ -678,6 +680,17 @@ defineExpose({
         :live2d-shadow-enabled="live2dShadowEnabled"
         :live2d-max-fps="live2dMaxFps"
         :live2d-render-scale="live2dRenderScale"
+      />
+      <YXZImageScene
+        v-if="stageModelRenderer === 'image' && showStage"
+        v-model:state="componentState"
+        min-w="50% <lg:full" min-h="100 sm:100"
+        h-full w-full flex-1
+        :model-src="stageModelSelectedUrl"
+        :paused="paused"
+        :x-offset="xOffset"
+        :y-offset="yOffset"
+        :scale="scale"
       />
       <ThreeScene
         v-if="stageModelRenderer === 'vrm' && showStage"

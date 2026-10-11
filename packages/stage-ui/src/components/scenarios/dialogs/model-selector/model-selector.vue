@@ -60,6 +60,7 @@ function handleAddVRMModel(file: FileList | null) {
 }
 
 const mapFormatRenderer: Record<DisplayModelFormat, string> = {
+  [DisplayModelFormat.Image]: '宜小智 2D',
   [DisplayModelFormat.Live2dZip]: 'Live2D',
   [DisplayModelFormat.Live2dDirectory]: 'Live2D',
   [DisplayModelFormat.VRM]: 'VRM',

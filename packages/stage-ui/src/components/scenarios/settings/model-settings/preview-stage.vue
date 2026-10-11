@@ -7,6 +7,8 @@ import { useMouse } from '@vueuse/core'
 import { storeToRefs } from 'pinia'
 import { computed, ref, watch } from 'vue'
 
+import YXZImageScene from '../../../scenes/YXZImageScene.vue'
+
 import { useSettings } from '../../../../stores/settings'
 import {
   createEmptyModelSettingsRuntimeSnapshot,
@@ -16,6 +18,7 @@ import {
 const props = defineProps<{
   live2dSceneClass?: string | string[]
   vrmSceneClass?: string | string[]
+  imageSceneClass?: string | string[]
 }>()
 
 const emit = defineEmits<{
@@ -29,6 +32,7 @@ const modelStore = useModelStore()
 const live2dSceneRef = ref<{ canvasElement: () => HTMLCanvasElement | undefined }>()
 const vrmSceneRef = ref<{ canvasElement: () => HTMLCanvasElement | undefined }>()
 const live2dComponentState = ref<'pending' | 'loading' | 'mounted'>('pending')
+const imageComponentState = ref<'pending' | 'loading' | 'mounted'>('pending')
 const vrmPreviewStageInstanceId = `model-settings-preview-stage:${Math.random().toString(36).slice(2, 10)}`
 
 const {
@@ -50,6 +54,7 @@ const { sceneMutationLocked, scenePhase } = storeToRefs(modelStore)
 
 const live2dSceneClassList = computed(() => normalizeClassList(props.live2dSceneClass))
 const vrmSceneClassList = computed(() => normalizeClassList(props.vrmSceneClass))
+const imageSceneClassList = computed(() => normalizeClassList(props.imageSceneClass))
 
 function normalizeClassList(value?: string | string[]) {
   if (!value)
@@ -106,6 +111,20 @@ const runtimeSnapshot = computed<ModelSettingsRuntimeSnapshot>(() => {
     })
   }
 
+  if (stageModelRenderer.value === 'image') {
+    const phase = resolveComponentStateToRuntimePhase(imageComponentState.value, { hasModel })
+
+    return createEmptyModelSettingsRuntimeSnapshot({
+      ownerInstanceId: vrmPreviewStageInstanceId,
+      renderer: 'image',
+      phase,
+      controlsLocked: false,
+      previewAvailable: hasModel,
+      canCapturePreview: false,
+      updatedAt: Date.now(),
+    })
+  }
+
   return createEmptyModelSettingsRuntimeSnapshot({
     ownerInstanceId: vrmPreviewStageInstanceId,
     updatedAt: Date.now(),
@@ -144,6 +163,14 @@ defineExpose({
   <template v-if="stageModelRenderer === 'vrm'">
     <div :class="vrmSceneClassList">
       <ThreeScene ref="vrmSceneRef" :model-src="stageModelSelectedUrl" />
+    </div>
+  </template>
+  <template v-if="stageModelRenderer === 'image'">
+    <div :class="imageSceneClassList">
+      <YXZImageScene
+        v-model:state="imageComponentState"
+        :model-src="stageModelSelectedUrl"
+      />
     </div>
   </template>
 </template>

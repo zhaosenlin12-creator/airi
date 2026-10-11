@@ -27,6 +27,7 @@ import { storeToRefs } from 'pinia'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 
 import YXZImageScene from './YXZImageScene.vue'
+import YXZPrintPreviewPanel from './YXZPrintPreviewPanel.vue'
 
 import { useDelayMessageQueue, useEmotionsMessageQueue } from '../../composables/queues'
 import { useAuthProviderSync } from '../../composables/use-auth-provider-sync'
@@ -729,6 +730,10 @@ defineExpose({
         :show-axes="stageViewControlsEnabled"
         :current-audio-source="currentAudioSource"
         @error="console.error"
+      />
+      <YXZPrintPreviewPanel
+        v-if="stageModelRenderer === 'image' && showStage"
+        @status="setYXZInteractionStatus"
       />
     </div>
   </div>

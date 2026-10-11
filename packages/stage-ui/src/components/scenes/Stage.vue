@@ -6,7 +6,7 @@ import type { SpeechProviderWithExtraOptions } from '@xsai-ext/providers/utils'
 import type { UnElevenLabsOptions } from 'unspeech'
 
 import type { EmotionPayload } from '../../constants/emotions'
-import type { YXZInteractionStatus } from './YXZImageScene.vue'
+import type { YXZInteractionStatus } from '../../assets/yxz/interaction'
 
 import { errorMessageFrom } from '@moeru/std'
 import { drizzle } from '@proj-airi/drizzle-duckdb-wasm'

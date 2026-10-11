@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import type { YXZPoseId } from '../../assets/yxz'
+import type { YXZInteractionStatus } from '../../assets/yxz/interaction'
 
 import { computed } from 'vue'
 
 import { getYXZPose } from '../../assets/yxz'
-
-export type YXZInteractionStatus = keyof typeof statusPresentation
+import { getYXZInteractionPresentation } from '../../assets/yxz/interaction'
 
 const props = withDefaults(defineProps<{
   modelSrc?: string
@@ -21,18 +21,9 @@ const props = withDefaults(defineProps<{
   scale: 1,
 })
 
-const statusPresentation = {
-  idle: { label: '欢迎，我是宜小智', pose: 'frontWave' },
-  listening: { label: '我在听，请告诉我', pose: 'sideWave' },
-  thinking: { label: '正在思考…', pose: 'seatedWave' },
-  speaking: { label: '正在回应', pose: 'topWave' },
-  processing: { label: '正在处理，请稍候', pose: 'backWave' },
-  success: { label: '完成了，看看效果吧', pose: 'topWave' },
-} as const
-
 const componentState = defineModel<'pending' | 'loading' | 'mounted'>('state', { default: 'pending' })
 const activeStatus = computed(() => props.status ?? 'idle')
-const activePresentation = computed(() => statusPresentation[activeStatus.value])
+const activePresentation = computed(() => getYXZInteractionPresentation(activeStatus.value))
 const motionClass = computed(() => `yxz-motion-${activeStatus.value}`)
 const resolvedModelSrc = computed(() => {
   if (props.status || props.pose)

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { buildYXZPreviewPrompt, createYXZPreview, previewImageSrc } from './use-yxz-print-preview'
+import { buildYXZPreviewPrompt, createYXZCartoonModel, createYXZPreview, previewImageSrc } from './use-yxz-print-preview'
 
 describe('YXZ print preview adapter', () => {
   it('adds selected design constraints without changing the original description', () => {
@@ -26,5 +26,24 @@ describe('YXZ print preview adapter', () => {
   it('rejects malformed responses instead of rendering untrusted data', async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response('{}', { status: 200 }))
     await expect(createYXZPreview({ prompt: '测试' }, fetcher)).rejects.toThrow('数据格式')
+  })
+
+  it('builds printable model and export URLs from the session response', async () => {
+    const progress = [] as Array<{ percent: number, message: string }>
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      if (String(input).includes('/api/progress/'))
+        return new Response(JSON.stringify({ events: [{ ts: 1, percent: 40, message: '构建浮雕' }] }), { status: 200 })
+      return new Response(JSON.stringify({
+        session_id: 'abc123',
+        model_url: '/api/data/abc123/model/mesh.glb',
+        faces: 1200,
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    })
+
+    const result = await createYXZCartoonModel({ sessionId: 'abc123', imageIndex: 1, onProgress: value => progress.push(value) }, fetcher)
+    expect(result.modelUrl).toContain('/api/data/abc123/model/mesh.glb')
+    expect(result.stlUrl).toContain('/api/export/abc123/stl')
+    expect(result.glbUrl).toContain('/api/export/abc123/glb')
+    expect(progress.some(value => value.message === '构建浮雕' && value.percent === 40)).toBe(true)
   })
 })

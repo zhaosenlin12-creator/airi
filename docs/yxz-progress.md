@@ -1,6 +1,6 @@
 # 宜小智 AI 智能创造系统进度记录
 
-更新时间：2026-10-11（Asia/Shanghai）
+更新时间：2026-10-12（Asia/Shanghai）
 
 ## 当前分支
 
@@ -48,6 +48,14 @@
 - 对后端响应做边界校验，支持 base64 和相对路径图片，接口失败只在面板内提示，不阻塞聊天主流程。
 - 生成中驱动宜小智 `processing`，成功驱动 `success`，与之前的状态动作层连通。
 
+### 切片 6：2D 方案到 3D 模型
+
+- 预览卡片支持选中具体方案，避免把多个候选图直接混在后续任务中。
+- 新增 `createYXZCartoonModel` 适配器，对接 Cartoon Print Studio 的 `POST /api/3d_cartoon`。
+- 生成期间并行轮询 `/api/progress/{session_id}`，将后端的 `percent / message / step` 映射到宜小智面板进度条。
+- 生成成功后提供 GLB 预览和 STL 下载入口；本阶段仍不自动打开切片软件，也不直接触发打印。
+- 3D 任务仍由显式按钮触发，失败只在面板内提示，不阻塞聊天主流程。
+
 ## 本阶段验收
 
 - [x] `pnpm -F @proj-airi/stage-ui typecheck`
@@ -57,7 +65,9 @@
 - [x] `YXZImageScene` 已支持状态动作类名和 `prefers-reduced-motion` 降级。
 - [x] 状态映射已从组件内抽离为可复用配置。
 - [x] Cartoon Print Studio `/api/health` 本机连通（服务运行于 `127.0.0.1:8000`）。
-- [x] 预览适配器单测：3 项通过。
+- [x] 预览与 3D 任务适配器单测：4 项通过。
+- [x] 3D 任务进度字段与 Cartoon Print Studio `progress.py` 的 `percent / message / step` 对齐。
+- [x] 3D 结果链接已接入面板，未自动执行切片或打印。
 - [x] `pnpm -F @proj-airi/stage-web build` 成功；保留现有构建警告。
 - [x] 未修改 AIRI 工作区中已有的语音、providers、国际化等未提交变更。
 
@@ -69,6 +79,6 @@
 
 1. 宜小智对话面板与状态气泡的视觉细化。
 2. 把预览结果接入聊天消息卡片，并支持“采用这个方案 / 重新描述”。
-3. 接入 3D 生成任务的进度轮询和结果预览（仍先不自动打印）。
+3. 把 3D 结果接入聊天消息卡片，支持“采用这个方案 / 重新描述”。
 4. 添加多轮确认数据结构和用户需求记忆。
 5. 最后接入打开切片软件、打印确认和取件流程。

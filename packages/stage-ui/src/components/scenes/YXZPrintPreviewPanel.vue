@@ -5,6 +5,7 @@ import { computed, onUnmounted, ref } from 'vue'
 
 import {
   buildYXZPreviewPrompt,
+  createYXZCartoonModel,
   createYXZPreview,
   getYXZPrintApiBase,
   previewImageSrc,
@@ -17,10 +18,14 @@ const emit = defineEmits<{
 const isOpen = ref(false)
 const description = ref('')
 const selectedOptions = ref<string[]>(['圆润可爱', '适合 3D 打印'])
-const previews = ref<Array<{ src: string, caption: string }>>([])
+const previews = ref<Array<{ index: number, src: string, caption: string }>>([])
 const sessionId = ref<string>()
+const selectedIndex = ref<number>()
+const model = ref<{ modelUrl: string, stlUrl: string, glbUrl: string }>()
+const modelProgress = ref({ percent: 0, message: '' })
 const errorMessage = ref('')
 const isLoading = ref(false)
+const isModelLoading = ref(false)
 const controller = ref<AbortController>()
 
 const options = [
@@ -32,6 +37,7 @@ const options = [
 ] as const
 
 const buttonLabel = computed(() => isLoading.value ? '正在生成…' : '生成预览')
+const modelButtonLabel = computed(() => isModelLoading.value ? `正在制作 ${modelProgress.value.percent}%` : '把这个方案做成 3D')
 
 function toggleOption(option: string) {
   selectedOptions.value = selectedOptions.value.includes(option)
@@ -58,9 +64,12 @@ async function generatePreview() {
     })
     sessionId.value = result.sessionId
     previews.value = result.previews.map(item => ({
+      index: item.index,
       src: previewImageSrc(item),
       caption: item.caption ?? `方案 ${item.index + 1}`,
     }))
+    selectedIndex.value = result.previews[0]?.index
+    model.value = undefined
     emit('status', 'success')
   }
   catch (error) {
@@ -71,6 +80,41 @@ async function generatePreview() {
   }
   finally {
     isLoading.value = false
+    controller.value = undefined
+  }
+}
+
+async function generateModel() {
+  if (isModelLoading.value || !sessionId.value || selectedIndex.value === undefined)
+    return
+
+  errorMessage.value = ''
+  model.value = undefined
+  isModelLoading.value = true
+  modelProgress.value = { percent: 0, message: '准备生成 3D 模型…' }
+  emit('status', 'processing')
+  controller.value?.abort()
+  controller.value = new AbortController()
+
+  try {
+    model.value = await createYXZCartoonModel({
+      sessionId: sessionId.value,
+      imageIndex: selectedIndex.value,
+      signal: controller.value.signal,
+      onProgress: progress => {
+        modelProgress.value = { percent: Math.max(0, Math.min(100, progress.percent)), message: progress.message }
+      },
+    })
+    emit('status', 'success')
+  }
+  catch (error) {
+    if ((error as Error)?.name !== 'AbortError') {
+      errorMessage.value = error instanceof Error ? error.message : '3D 生成失败，请稍后再试'
+      emit('status', 'idle')
+    }
+  }
+  finally {
+    isModelLoading.value = false
     controller.value = undefined
   }
 }
@@ -134,9 +178,25 @@ onUnmounted(() => controller.value?.abort())
       <p v-if="errorMessage" class="yxz-print-error" role="alert">{{ errorMessage }}</p>
       <div v-if="previews.length" class="yxz-print-grid" aria-live="polite">
         <figure v-for="preview in previews" :key="preview.src" class="yxz-print-card">
-          <img :src="preview.src" :alt="preview.caption">
+          <button type="button" class="yxz-print-card-button" :class="{ selected: selectedIndex === preview.index }" :aria-label="`选择${preview.caption}`" @click="selectedIndex = preview.index">
+            <img :src="preview.src" :alt="preview.caption">
+          </button>
           <figcaption>{{ preview.caption }}</figcaption>
         </figure>
+      </div>
+      <div v-if="previews.length" class="yxz-print-model-actions">
+        <button type="button" class="yxz-print-submit" :disabled="isModelLoading || selectedIndex === undefined" @click="generateModel">
+          {{ modelButtonLabel }}
+        </button>
+        <div v-if="isModelLoading" class="yxz-print-progress" role="status" aria-live="polite">
+          <span :style="{ width: `${modelProgress.percent}%` }" />
+          <small>{{ modelProgress.message }}</small>
+        </div>
+        <div v-if="model" class="yxz-print-model-result">
+          <span>3D 模型已生成</span>
+          <a :href="model.modelUrl" target="_blank" rel="noreferrer">打开 GLB 预览</a>
+          <a :href="model.stlUrl" target="_blank" rel="noreferrer">下载 STL</a>
+        </div>
       </div>
       <small class="yxz-print-endpoint">预览服务：{{ getYXZPrintApiBase() }}</small>
     </section>
@@ -291,11 +351,64 @@ onUnmounted(() => controller.value?.abort())
   background: #f6fbfd;
 }
 
+.yxz-print-card-button {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 2px solid transparent;
+  background: transparent;
+  cursor: pointer;
+}
+
+.yxz-print-card-button.selected {
+  border-color: #18a8e0;
+}
+
 .yxz-print-card img {
   display: block;
   width: 100%;
   aspect-ratio: 1;
   object-fit: cover;
+}
+
+.yxz-print-model-actions {
+  margin-top: .8rem;
+}
+
+.yxz-print-progress {
+  overflow: hidden;
+  margin-top: .55rem;
+  border-radius: .5rem;
+  background: #e5f1f5;
+}
+
+.yxz-print-progress > span {
+  display: block;
+  height: .35rem;
+  background: #18a8e0;
+  transition: width 300ms ease;
+}
+
+.yxz-print-progress small {
+  display: block;
+  padding: .35rem .45rem;
+  color: #52758a;
+  font-size: .7rem;
+}
+
+.yxz-print-model-result {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .45rem .7rem;
+  align-items: center;
+  margin-top: .6rem;
+  color: #15547c;
+  font-size: .75rem;
+}
+
+.yxz-print-model-result a {
+  color: #087eae;
+  text-decoration: underline;
 }
 
 .yxz-print-card figcaption {

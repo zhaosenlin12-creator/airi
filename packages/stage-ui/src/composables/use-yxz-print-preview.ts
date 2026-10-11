@@ -21,6 +21,26 @@ export interface YXZPreviewResponse {
   previews: YXZPreviewItem[]
 }
 
+export interface YXZModelRequest {
+  sessionId: string
+  imageIndex: number
+  signal?: AbortSignal
+  onProgress?: (progress: YXZModelProgress) => void
+}
+
+export interface YXZModelProgress {
+  percent: number
+  message: string
+  step?: string
+}
+
+export interface YXZModelResponse {
+  sessionId: string
+  modelUrl: string
+  stlUrl: string
+  glbUrl: string
+}
+
 export function getYXZPrintApiBase() {
   return (import.meta.env.VITE_CARTOON_PRINT_API || 'http://127.0.0.1:8000').replace(/\/$/, '')
 }
@@ -65,6 +85,108 @@ export function previewImageSrc(item: YXZPreviewItem, baseUrl = getYXZPrintApiBa
   if (/^https?:\/\//i.test(item.path))
     return item.path
   return `${baseUrl}${item.path.startsWith('/') ? item.path : `/${item.path}`}`
+}
+
+function sleep(ms: number, signal?: AbortSignal) {
+  return new Promise<void>((resolve) => {
+    if (signal?.aborted) {
+      resolve()
+      return
+    }
+
+    const timer = setTimeout(done, ms)
+    signal?.addEventListener('abort', done, { once: true })
+
+    function done() {
+      clearTimeout(timer)
+      signal?.removeEventListener('abort', done)
+      resolve()
+    }
+  })
+}
+
+function absolutePrintApiUrl(path: string, baseUrl = getYXZPrintApiBase()) {
+  if (/^https?:\/\//i.test(path))
+    return path
+  return `${baseUrl}${path.startsWith('/') ? path : `/${path}`}`
+}
+
+async function pollYXZModelProgress(sessionId: string, signal: AbortSignal, onProgress?: (progress: YXZModelProgress) => void, fetcher: typeof fetch = fetch) {
+  let since = 0
+  while (!signal.aborted) {
+    try {
+      const response = await fetcher(`${getYXZPrintApiBase()}/api/progress/${encodeURIComponent(sessionId)}?since=${since}`, { signal })
+      if (response.ok) {
+        const raw: unknown = await response.json()
+        if (isRecord(raw)) {
+          const events = Array.isArray(raw.events) ? raw.events : []
+          for (const event of events) {
+            if (!isRecord(event))
+              continue
+            const timestamp = typeof event.ts === 'number' ? event.ts : since
+            since = Math.max(since, timestamp)
+            onProgress?.({
+              percent: typeof event.percent === 'number' ? event.percent : 0,
+              message: typeof event.message === 'string' ? event.message : '正在生成 3D 模型…',
+              step: typeof event.step === 'string' ? event.step : undefined,
+            })
+          }
+        }
+      }
+    }
+    catch (error) {
+      if ((error as Error)?.name === 'AbortError')
+        return
+    }
+    if (signal.aborted)
+      return
+    await sleep(1200, signal)
+  }
+}
+
+export async function createYXZCartoonModel(request: YXZModelRequest, fetcher: typeof fetch = fetch): Promise<YXZModelResponse> {
+  if (!request.sessionId)
+    throw new Error('缺少预览会话，无法生成 3D 模型')
+
+  const progressController = new AbortController()
+  const onAbort = () => progressController.abort()
+  request.signal?.addEventListener('abort', onAbort, { once: true })
+  const progressTask = pollYXZModelProgress(request.sessionId, progressController.signal, request.onProgress, fetcher)
+
+  try {
+    const response = await fetcher(`${getYXZPrintApiBase()}/api/3d_cartoon`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        session_id: request.sessionId,
+        image_index: request.imageIndex,
+        layers: 6,
+        layer_step_mm: 4,
+        base_mm: 2,
+        target_side: 384,
+      }),
+      signal: request.signal,
+    })
+    if (!response.ok)
+      throw new Error(`3D 生成服务暂时不可用（HTTP ${response.status}）`)
+
+    const raw: unknown = await response.json()
+    if (!isRecord(raw) || typeof raw.session_id !== 'string' || typeof raw.model_url !== 'string')
+      throw new Error('3D 生成服务返回的数据格式无法识别')
+
+    request.onProgress?.({ percent: 100, message: '3D 模型已生成', step: 'done' })
+    return {
+      sessionId: raw.session_id,
+      modelUrl: absolutePrintApiUrl(raw.model_url),
+      glbUrl: absolutePrintApiUrl(`/api/export/${raw.session_id}/glb`),
+      stlUrl: absolutePrintApiUrl(`/api/export/${raw.session_id}/stl`),
+    }
+  }
+  finally {
+    progressController.abort()
+    request.signal?.removeEventListener('abort', onAbort)
+    await progressTask.catch(() => undefined)
+  }
 }
 
 export async function createYXZPreview(request: YXZPreviewRequest, fetcher: typeof fetch = fetch): Promise<YXZPreviewResponse> {

@@ -18,9 +18,9 @@ export interface YXZRequirementPatch {
 }
 
 export interface YXZRequirementStorage {
-  getItem(key: string): string | null
-  setItem(key: string, value: string): void
-  removeItem(key: string): void
+  getItem: (key: string) => string | null
+  setItem: (key: string, value: string) => void
+  removeItem: (key: string) => void
 }
 
 export const YXZ_REQUIREMENT_MEMORY_KEY = 'yxz/requirement-memory/v1'
@@ -150,4 +150,3 @@ export function useYXZRequirementMemory(storage = getDefaultStorage()) {
 
   return { state, update, clear }
 }
-

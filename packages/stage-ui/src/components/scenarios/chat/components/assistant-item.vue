@@ -4,9 +4,9 @@ import type { ChatAssistantMessage, ChatHistoryItem, ChatSlices, ChatSlicesText 
 import { isStageCapacitor, isStageWeb } from '@proj-airi/stage-shared'
 import { computed } from 'vue'
 
+import YXZCreationMessageCard from '../../../scenes/YXZCreationMessageCard.vue'
 import ChatResponsePart from './response-part.vue'
 import ChatToolCallBlock from './tool-call-block.vue'
-import YXZCreationMessageCard from '../../../scenes/YXZCreationMessageCard.vue'
 
 import { MarkdownRenderer } from '../../../markdown'
 import { getChatHistoryItemCopyText } from '../utils'

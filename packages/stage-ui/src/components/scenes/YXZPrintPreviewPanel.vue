@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import type { YXZInteractionStatus } from '../../assets/yxz/interaction'
+import type { ChatHistoryItem, YXZCreationPayload } from '../../types/chat'
 
 import { nanoid } from 'nanoid'
 import { computed, onUnmounted, ref } from 'vue'
+
+import YXZCreationMessageCard from './YXZCreationMessageCard.vue'
 
 import {
   buildYXZPreviewPrompt,
@@ -13,8 +16,6 @@ import {
 } from '../../composables/use-yxz-print-preview'
 import { getYXZRequirementNextQuestion, useYXZRequirementMemory } from '../../composables/use-yxz-requirement-memory'
 import { useChatSessionStore } from '../../stores/chat/session-store'
-import type { ChatHistoryItem, YXZCreationPayload } from '../../types/chat'
-import YXZCreationMessageCard from './YXZCreationMessageCard.vue'
 
 const emit = defineEmits<{
   status: [status: YXZInteractionStatus]
@@ -185,7 +186,7 @@ async function generateModel() {
       sessionId: sessionId.value,
       imageIndex: selectedIndex.value,
       signal: controller.value.signal,
-      onProgress: progress => {
+      onProgress: (progress) => {
         modelProgress.value = { percent: Math.max(0, Math.min(100, progress.percent)), message: progress.message }
       },
     })
@@ -233,8 +234,12 @@ onUnmounted(() => controller.value?.abort())
           <small>先确认效果，再进入 3D 制作</small>
         </div>
         <div class="yxz-print-header-actions">
-          <button type="button" class="yxz-print-memory-clear" @click="clearRequirementMemory">清除记忆</button>
-          <button type="button" class="yxz-print-close" aria-label="关闭预览面板" @click="closePanel">×</button>
+          <button type="button" class="yxz-print-memory-clear" @click="clearRequirementMemory">
+            清除记忆
+          </button>
+          <button type="button" class="yxz-print-close" aria-label="关闭预览面板" @click="closePanel">
+            ×
+          </button>
         </div>
       </header>
 
@@ -246,7 +251,9 @@ onUnmounted(() => controller.value?.abort())
         placeholder="例如：一个戴着红围巾的小熊桌面摆件"
         :disabled="isLoading"
       />
-      <p class="yxz-print-hint" role="status">宜小智：{{ nextQuestion }}</p>
+      <p class="yxz-print-hint" role="status">
+        宜小智：{{ nextQuestion }}
+      </p>
       <div class="yxz-print-options" aria-label="设计约束">
         <button
           v-for="option in options"
@@ -264,7 +271,9 @@ onUnmounted(() => controller.value?.abort())
       <button type="button" class="yxz-print-submit" :disabled="isLoading || !description.trim()" @click="generatePreview">
         {{ buttonLabel }}
       </button>
-      <p v-if="errorMessage" class="yxz-print-error" role="alert">{{ errorMessage }}</p>
+      <p v-if="errorMessage" class="yxz-print-error" role="alert">
+        {{ errorMessage }}
+      </p>
       <div v-if="previews.length" class="yxz-print-grid" aria-live="polite">
         <figure v-for="preview in previews" :key="preview.src" class="yxz-print-card">
           <button type="button" class="yxz-print-card-button" :class="{ selected: selectedIndex === preview.index }" :aria-label="`选择${preview.caption}`" @click="selectPreview(preview.index)">
@@ -291,7 +300,9 @@ onUnmounted(() => controller.value?.abort())
           <span :style="{ width: `${modelProgress.percent}%` }" />
           <small>{{ modelProgress.message }}</small>
         </div>
-        <div v-if="model" class="yxz-print-model-result">3D 模型已生成，可继续预览或下载 STL。</div>
+        <div v-if="model" class="yxz-print-model-result">
+          3D 模型已生成，可继续预览或下载 STL。
+        </div>
       </div>
       <small class="yxz-print-endpoint">预览服务：{{ getYXZPrintApiBase() }}</small>
     </section>

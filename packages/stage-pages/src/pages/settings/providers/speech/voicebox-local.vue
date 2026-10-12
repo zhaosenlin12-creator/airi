@@ -71,7 +71,9 @@ watch(model, async (value) => {
     <template #voice-settings>
       <Callout :label="t('settings.pages.providers.provider.voicebox-local.fields.field.voice.label')">
         <p>{{ t('settings.pages.providers.provider.voicebox-local.fields.field.voice.description') }}</p>
-        <p class="mt-2 text-sm opacity-80">在 Voicebox 中创建 Qwen CustomVoice → Eric（中文男声），再在下方声音档案中选择。Eric 的音色更明亮、有活力，适合宜小智。</p>
+        <p class="mt-2 text-sm opacity-80">
+          在 Voicebox 中创建 Qwen CustomVoice → Eric（中文男声），再在下方声音档案中选择。Eric 的音色更明亮、有活力，适合宜小智。
+        </p>
       </Callout>
       <FieldInput
         v-model="model"

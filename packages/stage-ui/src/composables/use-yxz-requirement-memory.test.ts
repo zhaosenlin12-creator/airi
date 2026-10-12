@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  YXZ_REQUIREMENT_MEMORY_KEY,
   clearYXZRequirementMemory,
   getYXZRequirementNextQuestion,
   loadYXZRequirementMemory,
   mergeYXZRequirementMemory,
   saveYXZRequirementMemory,
+  YXZ_REQUIREMENT_MEMORY_KEY,
 } from './use-yxz-requirement-memory'
 
 function createStorage() {
@@ -18,7 +18,7 @@ function createStorage() {
   }
 }
 
-describe('YXZ requirement memory', () => {
+describe('yXZ requirement memory', () => {
   it('merges and deduplicates constraints across turns', () => {
     const first = mergeYXZRequirementMemory(null, { description: '小熊摆件', constraints: ['圆润可爱'] })
     const next = mergeYXZRequirementMemory(first, { constraints: ['圆润可爱', '适合 3D 打印'], audience: '桌面' })

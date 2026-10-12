@@ -9,6 +9,7 @@ import { useContextBridgeStore } from '@proj-airi/stage-ui/stores/mods/api/conte
 import { useAiriCardStore } from '@proj-airi/stage-ui/stores/modules/airi-card'
 import { useOnboardingStore } from '@proj-airi/stage-ui/stores/onboarding'
 import { useSettings, useSettingsAudioDevice } from '@proj-airi/stage-ui/stores/settings'
+import { ensureYXZProactiveIntro } from '@proj-airi/stage-ui/composables/use-yxz-proactive-intro'
 import { useTheme } from '@proj-airi/ui'
 import { StageTransitionGroup } from '@proj-airi/ui-transitions'
 import { storeToRefs } from 'pinia'
@@ -96,6 +97,13 @@ onMounted(async () => {
   await displayModelsStore.loadDisplayModelsFromIndexedDB()
   await settingsStore.initializeStageModel()
   await settingsAudioDeviceStore.initialize()
+
+  if (settingsStore.stageModelSelected === 'preset-yxz') {
+    const sessionId = chatSessionStore.activeSessionId
+    const result = ensureYXZProactiveIntro(chatSessionStore.getSessionMessages(sessionId))
+    if (result.added)
+      chatSessionStore.setSessionMessages(sessionId, result.messages)
+  }
 })
 
 onUnmounted(() => {

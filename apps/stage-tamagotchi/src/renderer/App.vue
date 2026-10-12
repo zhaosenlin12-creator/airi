@@ -3,6 +3,7 @@ import { defineInvokeHandler } from '@moeru/eventa'
 import { useElectronEventaContext, useElectronEventaInvoke } from '@proj-airi/electron-vueuse'
 import { themeColorFromValue, useThemeColor } from '@proj-airi/stage-layouts/composables/theme-color'
 import { ToasterRoot } from '@proj-airi/stage-ui/components'
+import { ensureYXZProactiveIntro } from '@proj-airi/stage-ui/composables/use-yxz-proactive-intro'
 import { useSharedAnalyticsStore } from '@proj-airi/stage-ui/stores/analytics'
 import { useCharacterOrchestratorStore } from '@proj-airi/stage-ui/stores/character'
 import { useChatSessionStore } from '@proj-airi/stage-ui/stores/chat/session-store'
@@ -129,6 +130,13 @@ onMounted(async () => {
   await displayModelsStore.loadDisplayModelsFromIndexedDB()
   await settingsStore.initializeStageModel()
   await settingsAudioDeviceStore.initialize()
+
+  if (settingsStore.stageModelSelected === 'preset-yxz') {
+    const sessionId = chatSessionStore.activeSessionId
+    const result = ensureYXZProactiveIntro(chatSessionStore.getSessionMessages(sessionId))
+    if (result.added)
+      chatSessionStore.setSessionMessages(sessionId, result.messages)
+  }
 
   const serverChannelConfig = await getServerChannelConfig()
   serverChannelSettingsStore.tlsConfig = serverChannelConfig.tlsConfig ?? null

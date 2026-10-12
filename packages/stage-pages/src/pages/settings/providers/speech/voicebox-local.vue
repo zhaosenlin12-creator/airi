@@ -92,7 +92,7 @@ watch(model, async (value) => {
         :available-voices="availableVoices"
         :generate-speech="handleGenerateSpeech"
         :api-key-configured="true"
-        :voices-loading="speechStore.isLoadingSpeechProviderVoices[providerId] || false"
+        :voices-loading="speechStore.isLoadingSpeechProviderVoices || false"
         :default-text="t('settings.pages.providers.provider.voicebox-local.playground.default-text')"
       />
     </template>

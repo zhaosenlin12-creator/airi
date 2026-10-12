@@ -28,6 +28,8 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   (e: 'copyMessage', payload: { message: ChatHistoryItem, index: number, key: string | number }): void
   (e: 'deleteMessage', payload: { message: ChatHistoryItem, index: number, key: string | number }): void
+  (e: 'adoptCreation', payload: { message: ChatHistoryItem, index: number, key: string | number }): void
+  (e: 'redescribeCreation', payload: { message: ChatHistoryItem, index: number, key: string | number }): void
 }>()
 
 const chatHistoryRef = ref<HTMLDivElement>()
@@ -86,6 +88,18 @@ function emitDeleteMessage(message: ChatHistoryItem, index: number) {
     key: getChatHistoryItemKey(message, index),
   })
 }
+
+function emitCreationAction(event: 'adoptCreation' | 'redescribeCreation', message: ChatHistoryItem, index: number) {
+  const payload = {
+    message,
+    index,
+    key: getChatHistoryItemKey(message, index),
+  }
+  if (event === 'adoptCreation')
+    emit('adoptCreation', payload)
+  else
+    emit('redescribeCreation', payload)
+}
 </script>
 
 <template>
@@ -104,6 +118,8 @@ function emitDeleteMessage(message: ChatHistoryItem, index: number) {
           :variant="variant"
           @copy="emitCopyMessage(message, index)"
           @delete="emitDeleteMessage(message, index)"
+          @adopt-creation="emitCreationAction('adoptCreation', message, index)"
+          @redescribe-creation="emitCreationAction('redescribeCreation', message, index)"
         />
         <ChatAssistantItem
           v-else-if="message.role === 'assistant'"

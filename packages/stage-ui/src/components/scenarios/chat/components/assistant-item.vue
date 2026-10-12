@@ -6,6 +6,7 @@ import { computed } from 'vue'
 
 import ChatResponsePart from './response-part.vue'
 import ChatToolCallBlock from './tool-call-block.vue'
+import YXZCreationMessageCard from '../../../scenes/YXZCreationMessageCard.vue'
 
 import { MarkdownRenderer } from '../../../markdown'
 import { getChatHistoryItemCopyText } from '../utils'
@@ -24,6 +25,8 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   (e: 'copy'): void
   (e: 'delete'): void
+  (e: 'adoptCreation'): void
+  (e: 'redescribeCreation'): void
 }>()
 
 const resolvedSlices = computed<ChatSlices[]>(() => {
@@ -50,6 +53,7 @@ const boxClasses = computed(() => [
   props.variant === 'mobile' ? 'px-2 py-2 text-sm bg-primary-50/90 dark:bg-primary-950/90' : 'px-3 py-3 bg-primary-50/80 dark:bg-primary-950/80',
 ])
 const copyText = computed(() => getChatHistoryItemCopyText(props.message as ChatHistoryItem))
+const creation = computed(() => props.message.yxzCreation)
 </script>
 
 <template>
@@ -93,6 +97,18 @@ const copyText = computed(() => getChatHistoryItemCopyText(props.message as Chat
             v-if="message.categorization"
             :message="message"
             :variant="variant"
+          />
+
+          <YXZCreationMessageCard
+            v-if="creation"
+            :preview-src="creation.preview.src"
+            :caption="creation.preview.caption"
+            :description="creation.description"
+            :model-url="creation.model?.glbUrl"
+            :stl-url="creation.model?.stlUrl"
+            class="mt-3"
+            @adopt="emit('adoptCreation')"
+            @redescribe="emit('redescribeCreation')"
           />
         </div>
       </template>

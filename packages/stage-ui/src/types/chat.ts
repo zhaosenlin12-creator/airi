@@ -17,6 +17,23 @@ export interface ChatSlicesToolCallResult {
   result?: string | CommonContentPart[]
 }
 
+export interface YXZCreationPayload {
+  kind: 'yxz-creation'
+  description: string
+  options: string[]
+  preview: {
+    index: number
+    src: string
+    caption: string
+  }
+  model?: {
+    modelUrl: string
+    stlUrl: string
+    glbUrl: string
+  }
+  status: 'preview' | 'model-ready' | 'adopted' | 'redescribe'
+}
+
 export type ChatSlices = ChatSlicesText | ChatSlicesToolCall | ChatSlicesToolCallResult
 
 export interface ChatAssistantMessage extends AssistantMessage {
@@ -29,6 +46,7 @@ export interface ChatAssistantMessage extends AssistantMessage {
     speech: string
     reasoning: string
   }
+  yxzCreation?: YXZCreationPayload
 }
 
 export type ChatMessage = ChatAssistantMessage | SystemMessage | ToolMessage | UserMessage

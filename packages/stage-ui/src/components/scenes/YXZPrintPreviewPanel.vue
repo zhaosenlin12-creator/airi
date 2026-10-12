@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { YXZInteractionStatus } from '../../assets/yxz/interaction'
 
+import { nanoid } from 'nanoid'
 import { computed, onUnmounted, ref } from 'vue'
 
 import {
@@ -10,24 +11,14 @@ import {
   getYXZPrintApiBase,
   previewImageSrc,
 } from '../../composables/use-yxz-print-preview'
+import { getYXZRequirementNextQuestion, useYXZRequirementMemory } from '../../composables/use-yxz-requirement-memory'
+import { useChatSessionStore } from '../../stores/chat/session-store'
+import type { ChatHistoryItem, YXZCreationPayload } from '../../types/chat'
 import YXZCreationMessageCard from './YXZCreationMessageCard.vue'
 
 const emit = defineEmits<{
   status: [status: YXZInteractionStatus]
 }>()
-
-const isOpen = ref(false)
-const description = ref('')
-const selectedOptions = ref<string[]>(['圆润可爱', '适合 3D 打印'])
-const previews = ref<Array<{ index: number, src: string, caption: string }>>([])
-const sessionId = ref<string>()
-const selectedIndex = ref<number>()
-const model = ref<{ modelUrl: string, stlUrl: string, glbUrl: string }>()
-const modelProgress = ref({ percent: 0, message: '' })
-const errorMessage = ref('')
-const isLoading = ref(false)
-const isModelLoading = ref(false)
-const controller = ref<AbortController>()
 
 const options = [
   '圆润可爱',
@@ -37,9 +28,82 @@ const options = [
   '保留明显轮廓',
 ] as const
 
+const chatSession = useChatSessionStore()
+const requirementMemory = useYXZRequirementMemory()
+const storedRequirement = requirementMemory.state.value
+const isOpen = ref(false)
+const description = ref(storedRequirement?.description ?? '')
+const selectedOptions = ref<string[]>(storedRequirement?.constraints.length
+  ? storedRequirement.constraints.filter(option => options.includes(option as typeof options[number]))
+  : ['圆润可爱', '适合 3D 打印'])
+const previews = ref<Array<{ index: number, src: string, caption: string }>>([])
+const sessionId = ref<string>()
+const selectedIndex = ref<number>()
+const model = ref<{ modelUrl: string, stlUrl: string, glbUrl: string }>()
+const modelProgress = ref({ percent: 0, message: '' })
+const errorMessage = ref('')
+const isLoading = ref(false)
+const isModelLoading = ref(false)
+const controller = ref<AbortController>()
+const chatMessageId = ref<string>()
+
 const buttonLabel = computed(() => isLoading.value ? '正在生成…' : '生成预览')
 const modelButtonLabel = computed(() => isModelLoading.value ? `正在制作 ${modelProgress.value.percent}%` : '把这个方案做成 3D')
 const selectedPreview = computed(() => previews.value.find(preview => preview.index === selectedIndex.value))
+const nextQuestion = computed(() => getYXZRequirementNextQuestion(requirementMemory.state.value))
+
+function rememberCurrentRequirement() {
+  requirementMemory.update({
+    description: description.value,
+    constraints: selectedOptions.value,
+  })
+}
+
+async function persistCreation(status: YXZCreationPayload['status']) {
+  const preview = selectedPreview.value
+  if (!preview)
+    return
+
+  try {
+    await chatSession.initialize()
+    const sessionId = chatSession.activeSessionId
+    if (!sessionId)
+      return
+
+    const text = `我已整理好「${preview.caption}」创作方案，你可以继续确认预览或进入 3D 制作。`
+    const message: ChatHistoryItem = {
+      role: 'assistant',
+      content: text,
+      slices: [{ type: 'text', text }],
+      tool_results: [],
+      yxzCreation: {
+        kind: 'yxz-creation',
+        description: description.value.trim(),
+        options: [...selectedOptions.value],
+        preview,
+        model: model.value,
+        status,
+      },
+      createdAt: Date.now(),
+      id: chatMessageId.value ?? nanoid(),
+    }
+
+    const messages = chatSession.getSessionMessages(sessionId)
+    const existingIndex = messages.findIndex(item => item.id === chatMessageId.value)
+    if (existingIndex >= 0) {
+      const next = [...messages]
+      next[existingIndex] = message
+      chatSession.setSessionMessages(sessionId, next)
+    }
+    else {
+      chatMessageId.value = message.id
+      chatSession.appendSessionMessage(sessionId, message)
+    }
+  }
+  catch {
+    // Preview generation remains usable even when chat persistence is unavailable.
+  }
+}
 
 function toggleOption(option: string) {
   selectedOptions.value = selectedOptions.value.includes(option)
@@ -47,11 +111,28 @@ function toggleOption(option: string) {
     : [...selectedOptions.value, option]
 }
 
+function selectPreview(index: number) {
+  selectedIndex.value = index
+  model.value = undefined
+  void persistCreation('preview')
+}
+
+function openPanel() {
+  isOpen.value = true
+}
+
+function clearRequirementMemory() {
+  requirementMemory.clear()
+  description.value = ''
+  selectedOptions.value = ['圆润可爱', '适合 3D 打印']
+}
+
 async function generatePreview() {
   if (isLoading.value)
     return
 
   errorMessage.value = ''
+  rememberCurrentRequirement()
   previews.value = []
   controller.value?.abort()
   controller.value = new AbortController()
@@ -72,6 +153,7 @@ async function generatePreview() {
     }))
     selectedIndex.value = result.previews[0]?.index
     model.value = undefined
+    void persistCreation('preview')
     emit('status', 'success')
   }
   catch (error) {
@@ -107,6 +189,7 @@ async function generateModel() {
         modelProgress.value = { percent: Math.max(0, Math.min(100, progress.percent)), message: progress.message }
       },
     })
+    void persistCreation('model-ready')
     emit('status', 'success')
   }
   catch (error) {
@@ -137,7 +220,7 @@ onUnmounted(() => controller.value?.abort())
       type="button"
       class="yxz-print-launch"
       aria-label="打开宜小智产品预览"
-      @click="isOpen = true"
+      @click="openPanel"
     >
       <span class="yxz-print-launch-dot" />
       <span>开始创作</span>
@@ -149,7 +232,10 @@ onUnmounted(() => controller.value?.abort())
           <strong>宜小智创作预览</strong>
           <small>先确认效果，再进入 3D 制作</small>
         </div>
-        <button type="button" class="yxz-print-close" aria-label="关闭预览面板" @click="closePanel">×</button>
+        <div class="yxz-print-header-actions">
+          <button type="button" class="yxz-print-memory-clear" @click="clearRequirementMemory">清除记忆</button>
+          <button type="button" class="yxz-print-close" aria-label="关闭预览面板" @click="closePanel">×</button>
+        </div>
       </header>
 
       <textarea
@@ -160,6 +246,7 @@ onUnmounted(() => controller.value?.abort())
         placeholder="例如：一个戴着红围巾的小熊桌面摆件"
         :disabled="isLoading"
       />
+      <p class="yxz-print-hint" role="status">宜小智：{{ nextQuestion }}</p>
       <div class="yxz-print-options" aria-label="设计约束">
         <button
           v-for="option in options"
@@ -180,7 +267,7 @@ onUnmounted(() => controller.value?.abort())
       <p v-if="errorMessage" class="yxz-print-error" role="alert">{{ errorMessage }}</p>
       <div v-if="previews.length" class="yxz-print-grid" aria-live="polite">
         <figure v-for="preview in previews" :key="preview.src" class="yxz-print-card">
-          <button type="button" class="yxz-print-card-button" :class="{ selected: selectedIndex === preview.index }" :aria-label="`选择${preview.caption}`" @click="selectedIndex = preview.index">
+          <button type="button" class="yxz-print-card-button" :class="{ selected: selectedIndex === preview.index }" :aria-label="`选择${preview.caption}`" @click="selectPreview(preview.index)">
             <img :src="preview.src" :alt="preview.caption">
           </button>
           <figcaption>{{ preview.caption }}</figcaption>
@@ -193,8 +280,8 @@ onUnmounted(() => controller.value?.abort())
         :description="description"
         :model-url="model?.modelUrl"
         :stl-url="model?.stlUrl"
-        @adopt="emit('status', 'success')"
-        @redescribe="model = undefined"
+        @adopt="void persistCreation('adopted'); emit('status', 'success')"
+        @redescribe="model = undefined; void persistCreation('redescribe')"
       />
       <div v-if="previews.length" class="yxz-print-model-actions">
         <button type="button" class="yxz-print-submit" :disabled="isModelLoading || selectedIndex === undefined" @click="generateModel">
@@ -266,6 +353,12 @@ onUnmounted(() => controller.value?.abort())
   color: #15547c;
 }
 
+.yxz-print-header-actions {
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+}
+
 .yxz-print-header strong,
 .yxz-print-header small {
   display: block;
@@ -287,6 +380,19 @@ onUnmounted(() => controller.value?.abort())
   cursor: pointer;
 }
 
+.yxz-print-memory-clear {
+  border: 0;
+  background: transparent;
+  color: #6b8798;
+  font-size: .68rem;
+  cursor: pointer;
+}
+
+.yxz-print-memory-clear:hover {
+  color: #087eae;
+  text-decoration: underline;
+}
+
 .yxz-print-input {
   width: 100%;
   resize: vertical;
@@ -300,6 +406,13 @@ onUnmounted(() => controller.value?.abort())
 .yxz-print-input:focus {
   border-color: #18a8e0;
   box-shadow: 0 0 0 3px rgba(24, 168, 224, .12);
+}
+
+.yxz-print-hint {
+  margin: .45rem 0 0;
+  color: #52758a;
+  font-size: .72rem;
+  line-height: 1.45;
 }
 
 .yxz-print-options {

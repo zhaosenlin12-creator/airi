@@ -38,6 +38,15 @@ const instruct = computed({
   },
 })
 const availableVoices = computed(() => speechStore.availableVoices[providerId] || [])
+const voiceboxStatus = computed(() => {
+  if (speechStore.speechProviderError)
+    return `未连接：${speechStore.speechProviderError}`
+  if (speechStore.isLoadingSpeechProviderVoices)
+    return '正在检测 Voicebox 服务…'
+  if (availableVoices.value.length)
+    return `已连接，发现 ${availableVoices.value.length} 个声音档案`
+  return '尚未发现声音档案，请先在 Voicebox 创建 Eric。'
+})
 
 async function handleGenerateSpeech(input: string, voiceId: string) {
   const provider = await providersStore.getProviderInstance(providerId) as SpeechProvider
@@ -48,6 +57,10 @@ async function handleGenerateSpeech(input: string, voiceId: string) {
     ...providerConfig.value,
     instruct: instruct.value,
   })
+}
+
+async function refreshVoicebox() {
+  await speechStore.loadVoicesForProvider(providerId)
 }
 
 onMounted(async () => {
@@ -87,6 +100,12 @@ watch(model, async (value) => {
         description="自然语言控制语速、情绪和卡通感。"
         placeholder="温暖、活泼、亲切，带一点可爱的卡通感"
       />
+      <div class="mt-3 flex items-center gap-2 text-sm opacity-80" role="status" aria-live="polite">
+        <span>{{ voiceboxStatus }}</span>
+        <button type="button" class="rounded bg-primary-500/10 px-2 py-1 text-xs" @click="refreshVoicebox">
+          重新检测
+        </button>
+      </div>
     </template>
 
     <template #playground>

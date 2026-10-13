@@ -47,6 +47,7 @@ const isLoading = ref(false)
 const isModelLoading = ref(false)
 const controller = ref<AbortController>()
 const chatMessageId = ref<string>()
+let persistVersion = 0
 
 const buttonLabel = computed(() => isLoading.value ? '正在生成…' : '生成预览')
 const modelButtonLabel = computed(() => isModelLoading.value ? `正在制作 ${modelProgress.value.percent}%` : '把这个方案做成 3D')
@@ -65,8 +66,16 @@ async function persistCreation(status: YXZCreationPayload['status']) {
   if (!preview)
     return
 
+  const version = ++persistVersion
+  const descriptionSnapshot = description.value.trim()
+  const optionsSnapshot = [...selectedOptions.value]
+  const modelSnapshot = model.value
+
   try {
     await chatSession.initialize()
+    if (version !== persistVersion)
+      return
+
     const sessionId = chatSession.activeSessionId
     if (!sessionId)
       return
@@ -79,10 +88,10 @@ async function persistCreation(status: YXZCreationPayload['status']) {
       tool_results: [],
       yxzCreation: {
         kind: 'yxz-creation',
-        description: description.value.trim(),
-        options: [...selectedOptions.value],
+        description: descriptionSnapshot,
+        options: optionsSnapshot,
         preview,
-        model: model.value,
+        model: modelSnapshot,
         status,
       },
       createdAt: Date.now(),
@@ -231,7 +240,7 @@ onUnmounted(() => controller.value?.abort())
       <header class="yxz-print-header">
         <div>
           <strong>宜小智创作预览</strong>
-          <small>先确认效果，再进入 3D 制作</small>
+          <small>先确认效果，再制作 3D 模型</small>
         </div>
         <div class="yxz-print-header-actions">
           <button type="button" class="yxz-print-memory-clear" @click="clearRequirementMemory">
@@ -277,7 +286,7 @@ onUnmounted(() => controller.value?.abort())
       <div v-if="previews.length" class="yxz-print-grid" aria-live="polite">
         <figure v-for="preview in previews" :key="preview.src" class="yxz-print-card">
           <button type="button" class="yxz-print-card-button" :class="{ selected: selectedIndex === preview.index }" :aria-label="`选择${preview.caption}`" @click="selectPreview(preview.index)">
-            <img :src="preview.src" :alt="preview.caption">
+            <img :src="preview.src" :alt="preview.caption" loading="lazy" decoding="async">
           </button>
           <figcaption>{{ preview.caption }}</figcaption>
         </figure>

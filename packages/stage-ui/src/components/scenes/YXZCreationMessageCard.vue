@@ -5,8 +5,10 @@ withDefaults(defineProps<{
   description?: string
   modelUrl?: string
   stlUrl?: string
+  interactive?: boolean
 }>(), {
   description: '',
+  interactive: true,
 })
 
 const emit = defineEmits<{
@@ -26,7 +28,7 @@ const emit = defineEmits<{
     </div>
     <img :src="previewSrc" :alt="caption" class="yxz-creation-card-image">
     <p v-if="description" class="yxz-creation-card-description">{{ description }}</p>
-    <div class="yxz-creation-card-actions">
+    <div v-if="interactive" class="yxz-creation-card-actions">
       <button type="button" class="yxz-creation-card-primary" @click="emit('adopt')">采用这个方案</button>
       <button type="button" class="yxz-creation-card-secondary" @click="emit('redescribe')">重新描述</button>
     </div>

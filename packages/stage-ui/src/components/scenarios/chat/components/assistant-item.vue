@@ -106,9 +106,8 @@ const creation = computed(() => props.message.yxzCreation)
             :description="creation.description"
             :model-url="creation.model?.glbUrl"
             :stl-url="creation.model?.stlUrl"
+            :interactive="false"
             class="mt-3"
-            @adopt="emit('adoptCreation')"
-            @redescribe="emit('redescribeCreation')"
           />
         </div>
       </template>

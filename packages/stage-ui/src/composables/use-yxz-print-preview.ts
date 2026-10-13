@@ -41,6 +41,9 @@ export interface YXZModelResponse {
   glbUrl: string
 }
 
+export const YXZ_PREVIEW_TIMEOUT_MS = 120_000
+export const YXZ_MODEL_TIMEOUT_MS = 10 * 60_000
+
 export function getYXZPrintApiBase() {
   return (import.meta.env.VITE_CARTOON_PRINT_API || 'http://127.0.0.1:8000').replace(/\/$/, '')
 }
@@ -105,6 +108,28 @@ function sleep(ms: number, signal?: AbortSignal) {
   })
 }
 
+function createRequestSignal(externalSignal: AbortSignal | undefined, timeoutMs: number) {
+  const controller = new AbortController()
+  let timedOut = false
+  const timer = setTimeout(() => {
+    timedOut = true
+    controller.abort()
+  }, timeoutMs)
+  const abort = () => controller.abort()
+  externalSignal?.addEventListener('abort', abort, { once: true })
+  if (externalSignal?.aborted)
+    controller.abort()
+
+  return {
+    signal: controller.signal,
+    timedOut: () => timedOut,
+    dispose: () => {
+      clearTimeout(timer)
+      externalSignal?.removeEventListener('abort', abort)
+    },
+  }
+}
+
 function absolutePrintApiUrl(path: string, baseUrl = getYXZPrintApiBase()) {
   if (/^https?:\/\//i.test(path))
     return path
@@ -148,9 +173,10 @@ export async function createYXZCartoonModel(request: YXZModelRequest, fetcher: t
   if (!request.sessionId)
     throw new Error('缺少预览会话，无法生成 3D 模型')
 
+  const linked = createRequestSignal(request.signal, YXZ_MODEL_TIMEOUT_MS)
   const progressController = new AbortController()
   const onAbort = () => progressController.abort()
-  request.signal?.addEventListener('abort', onAbort, { once: true })
+  linked.signal.addEventListener('abort', onAbort, { once: true })
   const progressTask = pollYXZModelProgress(request.sessionId, progressController.signal, request.onProgress, fetcher)
 
   try {
@@ -165,7 +191,7 @@ export async function createYXZCartoonModel(request: YXZModelRequest, fetcher: t
         base_mm: 2,
         target_side: 384,
       }),
-      signal: request.signal,
+      signal: linked.signal,
     })
     if (!response.ok)
       throw new Error(`3D 生成服务暂时不可用（HTTP ${response.status}）`)
@@ -182,9 +208,15 @@ export async function createYXZCartoonModel(request: YXZModelRequest, fetcher: t
       stlUrl: absolutePrintApiUrl(`/api/export/${raw.session_id}/stl`),
     }
   }
+  catch (error) {
+    if (linked.timedOut())
+      throw new Error('3D 生成超过 10 分钟仍未完成，请稍后重试')
+    throw error
+  }
   finally {
     progressController.abort()
-    request.signal?.removeEventListener('abort', onAbort)
+    linked.signal.removeEventListener('abort', onAbort)
+    linked.dispose()
     await progressTask.catch(() => undefined)
   }
 }
@@ -194,17 +226,29 @@ export async function createYXZPreview(request: YXZPreviewRequest, fetcher: type
   if (!prompt)
     throw new Error('请输入想要制作的产品描述')
 
-  const response = await fetcher(`${getYXZPrintApiBase()}/api/previews`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      prompt,
-      n: Math.min(Math.max(request.n ?? 4, 1), 4),
-      prefer: request.prefer ?? 'minimax',
-      session_id: request.sessionId ?? crypto.randomUUID().replace(/-/g, '').slice(0, 12),
-    }),
-    signal: request.signal,
-  })
+  const linked = createRequestSignal(request.signal, YXZ_PREVIEW_TIMEOUT_MS)
+  let response: Response
+  try {
+    response = await fetcher(`${getYXZPrintApiBase()}/api/previews`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        prompt,
+        n: Math.min(Math.max(request.n ?? 4, 1), 4),
+        prefer: request.prefer ?? 'minimax',
+        session_id: request.sessionId ?? crypto.randomUUID().replace(/-/g, '').slice(0, 12),
+      }),
+      signal: linked.signal,
+    })
+  }
+  catch (error) {
+    if (linked.timedOut())
+      throw new Error('预览生成超过 2 分钟仍未完成，请稍后重试')
+    throw error
+  }
+  finally {
+    linked.dispose()
+  }
 
   if (!response.ok)
     throw new Error(`预览服务暂时不可用（HTTP ${response.status}）`)

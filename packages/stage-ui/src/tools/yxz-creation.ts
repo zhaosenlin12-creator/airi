@@ -16,8 +16,10 @@ function appendCreationCard(input: {
   description: string
   options: string[]
   preview: { index: number, src: string, caption: string }
+  previews?: Array<{ index: number, src: string, caption: string }>
   model?: { modelUrl: string, stlUrl: string, glbUrl: string }
-  status: 'preview' | 'model-ready'
+  status: 'preview' | 'model-building' | 'model-ready'
+  progressMsg?: string
 }) {
   const sessions = useChatSessionStore()
   const sessionId = sessions.activeSessionId
@@ -28,10 +30,15 @@ function appendCreationCard(input: {
   const existingIndex = messages.findIndex(message => message.role === 'assistant'
     && message.yxzCreation?.kind === 'yxz-creation'
     && message.yxzCreation.preview.src === input.preview.src)
+  const content = input.status === 'model-ready'
+    ? '3D 模型已完成，请查看方案卡片。'
+    : input.status === 'model-building'
+      ? (input.progressMsg || '正在制作 3D 模型，请耐心等待…')
+      : '预览已生成，请查看方案卡片。'
   const message = {
     role: 'assistant' as const,
-    content: input.status === 'model-ready' ? '3D 模型已完成，请查看方案卡片。' : '预览已生成，请查看方案卡片。',
-    slices: [{ type: 'text' as const, text: input.status === 'model-ready' ? '3D 模型已完成，请查看方案卡片。' : '预览已生成，请查看方案卡片。' }],
+    content,
+    slices: [{ type: 'text' as const, text: content }],
     tool_results: [],
     yxzCreation: {
       kind: 'yxz-creation' as const,
@@ -39,8 +46,10 @@ function appendCreationCard(input: {
       description: input.description,
       options: input.options,
       preview: input.preview,
+      previews: input.previews,
       model: input.model,
       status: input.status,
+      progressMsg: input.progressMsg,
     },
     createdAt: Date.now(),
     id: existingIndex >= 0 ? messages[existingIndex].id : nanoid(),
@@ -88,9 +97,24 @@ export async function generateYXZModelFromConfirmation(sessionId: string, userTe
   if (!card.yxzCreation.sessionId || (sessionId !== activeSessionId && sessionId !== card.yxzCreation.sessionId))
     throw new Error('预览会话已失效，请重新生成预览')
 
+  appendCreationCard({
+    sessionId: card.yxzCreation.sessionId,
+    description: card.yxzCreation.description,
+    options: card.yxzCreation.options,
+    preview: card.yxzCreation.preview,
+    status: 'model-building',
+  })
   const result = await createYXZCartoonModel({
     sessionId: card.yxzCreation.sessionId,
     imageIndex: card.yxzCreation.preview.index,
+    onProgress: progress => appendCreationCard({
+      sessionId: card.yxzCreation.sessionId,
+      description: card.yxzCreation.description,
+      options: card.yxzCreation.options,
+      preview: card.yxzCreation.preview,
+      status: 'model-building',
+      progressMsg: progress.message,
+    }),
   })
   appendCreationCard({
     sessionId: card.yxzCreation.sessionId,
@@ -161,7 +185,7 @@ export async function createYXZCreationTools() {
     }),
     tool({
       name: 'yxz_generatePreview',
-      description: '宜小智专用：在用户说清产品、用途和主要风格后，直接调用已连接的 3D 打印后台生成产品预览图。不要要求用户手动点“开始创作”。每次只生成一个候选，结果会自动出现在聊天卡片。',
+      description: '宜小智专用：在用户说清产品、用途和主要风格后，直接调用已连接的 3D 打印后台生成产品预览图。不要要求用户手动点“开始创作”。一次生成 4 张备选预览，结果会自动出现在聊天卡片，用户可点图放大、切换查看。',
       parameters: z.object({
         description: z.string().min(3).max(500).describe('中文产品描述，包含对象、用途、关键造型'),
         constraints: z.array(z.string()).max(8).describe('用户已确认的风格、尺寸、颜色和打印约束'),
@@ -171,17 +195,19 @@ export async function createYXZCreationTools() {
         memory.update({ description, constraints })
         const result = await createYXZPreview({
           prompt: buildYXZPreviewPrompt(description, constraints),
-          n: 1,
+          n: 4,
         })
         const item = result.previews[0]
         if (!item)
           throw new Error('后台没有返回预览图')
-        const preview = {
-          index: item.index,
-          src: previewImageSrc(item.path ? { ...item, b64: undefined } : item),
-          caption: item.caption || '产品预览',
-        }
-        appendCreationCard({ sessionId: result.sessionId, description, options: constraints, preview, status: 'preview' })
+        const toCard = (it: typeof item) => ({
+          index: it.index,
+          src: previewImageSrc(it.path ? { ...it, b64: undefined } : it),
+          caption: it.caption || '产品预览',
+        })
+        const preview = toCard(item)
+        const previews = result.previews.map(toCard)
+        appendCreationCard({ sessionId: result.sessionId, description, options: constraints, preview, previews, status: 'preview' })
         return {
           status: 'preview-ready',
           sessionId: result.sessionId,
@@ -216,7 +242,25 @@ export async function createYXZCreationTools() {
           throw new Error('请先让用户明确确认制作 3D 模型')
         if (!card.yxzCreation.sessionId || card.yxzCreation.sessionId !== sessionId)
           throw new Error('预览会话已失效，请重新生成预览')
-        const result = await createYXZCartoonModel({ sessionId: card.yxzCreation.sessionId, imageIndex })
+        appendCreationCard({
+          sessionId: card.yxzCreation.sessionId,
+          description: card.yxzCreation.description,
+          options: card.yxzCreation.options,
+          preview: card.yxzCreation.preview,
+          status: 'model-building',
+        })
+        const result = await createYXZCartoonModel({
+          sessionId: card.yxzCreation.sessionId,
+          imageIndex,
+          onProgress: progress => appendCreationCard({
+            sessionId: card.yxzCreation.sessionId,
+            description: card.yxzCreation.description,
+            options: card.yxzCreation.options,
+            preview: card.yxzCreation.preview,
+            status: 'model-building',
+            progressMsg: progress.message,
+          }),
+        })
         appendCreationCard({
           sessionId: card.yxzCreation.sessionId,
           description: card.yxzCreation.description,

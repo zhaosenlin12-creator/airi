@@ -44,6 +44,7 @@ export interface YXZModelResponse {
   modelUrl: string
   stlUrl: string
   glbUrl: string
+  engine?: string
 }
 
 export interface YXZLocalSoftware {
@@ -234,40 +235,81 @@ export async function createYXZCartoonModel(request: YXZModelRequest, fetcher: t
   linked.signal.addEventListener('abort', onAbort, { once: true })
   const progressTask = pollYXZModelProgress(request.sessionId, progressController.signal, request.onProgress, fetcher)
 
+  // Quality-first engine chain: Hunyuan3D-2 (local, high) -> Tripo3D (cloud PBR) -> TripoSR cartoon (fallback).
+  const engines: Array<{ endpoint: string, label: string, body: Record<string, unknown> }> = [
+    {
+      endpoint: '/api/3d_hy',
+      label: 'Hunyuan3D',
+      body: { steps: 5, octree: 96 },
+    },
+    {
+      endpoint: '/api/3d_tripo',
+      label: 'Tripo3D',
+      body: { target_height_mm: 70, model_version: 'v3.1-20260211', texture_quality: 'detailed' },
+    },
+    {
+      endpoint: '/api/3d_cartoon',
+      label: 'TripoSR',
+      body: { layers: 6, layer_step_mm: 4, base_mm: 2, target_side: 384 },
+    },
+  ]
+
+  let lastError: Error | null = null
   try {
-    const response = await fetcher(`${getYXZPrintApiBase()}/api/3d_cartoon`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        session_id: request.sessionId,
-        image_index: request.imageIndex,
-        ...(request.customImage ? { custom_image: request.customImage } : {}),
-        layers: 6,
-        layer_step_mm: 4,
-        base_mm: 2,
-        target_side: 384,
-      }),
-      signal: linked.signal,
-    })
-    if (!response.ok)
-      throw new Error(`3D 生成服务暂时不可用（HTTP ${response.status}）`)
+    for (let i = 0; i < engines.length; i++) {
+      const engine = engines[i]
+      try {
+        request.onProgress?.({
+          percent: 2,
+          message: i === 0 ? '开始制作 3D 模型，请耐心等待…' : `${engine.label} 引擎不可用，正在切换备用引擎（${i + 1}/${engines.length}）…`,
+          step: 'building',
+        })
+        const response = await fetcher(`${getYXZPrintApiBase()}${engine.endpoint}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            session_id: request.sessionId,
+            image_index: request.imageIndex,
+            ...(request.customImage ? { custom_image: request.customImage } : {}),
+            ...engine.body,
+          }),
+          signal: linked.signal,
+        })
+        if (!response.ok) {
+          let detail = ''
+          try {
+            const errRaw: unknown = await response.json()
+            if (isRecord(errRaw)) {
+              const d = errRaw.detail
+              detail = typeof d === 'string' ? d : isRecord(d) && typeof d.error === 'string' ? d.error : ''
+            }
+          }
+          catch { /* ignore */ }
+          throw new Error(`3D 生成服务暂时不可用（HTTP ${response.status}）${detail ? `：${detail}` : ''}`)
+        }
 
-    const raw: unknown = await response.json()
-    if (!isRecord(raw) || typeof raw.session_id !== 'string' || typeof raw.model_url !== 'string')
-      throw new Error('3D 生成服务返回的数据格式无法识别')
+        const raw: unknown = await response.json()
+        if (!isRecord(raw) || typeof raw.session_id !== 'string' || typeof raw.model_url !== 'string')
+          throw new Error('3D 生成服务返回的数据格式无法识别')
 
-    request.onProgress?.({ percent: 100, message: '3D 模型已生成', step: 'done' })
-    return {
-      sessionId: raw.session_id,
-      modelUrl: absolutePrintApiUrl(raw.model_url),
-      glbUrl: absolutePrintApiUrl(`/api/export/${raw.session_id}/glb`),
-      stlUrl: absolutePrintApiUrl(`/api/export/${raw.session_id}/stl`),
+        request.onProgress?.({ percent: 100, message: `3D 模型已生成（${engine.label}）`, step: 'done' })
+        return {
+          sessionId: raw.session_id,
+          modelUrl: absolutePrintApiUrl(raw.model_url),
+          glbUrl: absolutePrintApiUrl(`/api/export/${raw.session_id}/glb`),
+          stlUrl: absolutePrintApiUrl(`/api/export/${raw.session_id}/stl`),
+          engine: typeof raw.engine === 'string' ? raw.engine : engine.label,
+        }
+      }
+      catch (error) {
+        if (linked.timedOut()) {
+          request.onProgress?.({ percent: 0, message: '3D 生成超过 10 分钟仍未完成，请稍后重试', step: 'failed' })
+          throw new Error('3D 生成超过 10 分钟仍未完成，请稍后重试')
+        }
+        lastError = error instanceof Error ? error : new Error(String(error))
+        request.onProgress?.({ percent: 5, message: `${engine.label} 引擎失败，尝试下一个引擎…`, step: 'building' })
+      }
     }
-  }
-  catch (error) {
-    if (linked.timedOut())
-      throw new Error('3D 生成超过 10 分钟仍未完成，请稍后重试')
-    throw error
   }
   finally {
     progressController.abort()
@@ -275,6 +317,9 @@ export async function createYXZCartoonModel(request: YXZModelRequest, fetcher: t
     linked.dispose()
     await progressTask.catch(() => undefined)
   }
+
+  request.onProgress?.({ percent: 0, message: lastError?.message ?? '3D 生成失败，请重试', step: 'failed' })
+  throw lastError ?? new Error('3D 生成失败，请重试')
 }
 
 export async function createYXZPreview(request: YXZPreviewRequest, fetcher: typeof fetch = fetch): Promise<YXZPreviewResponse> {

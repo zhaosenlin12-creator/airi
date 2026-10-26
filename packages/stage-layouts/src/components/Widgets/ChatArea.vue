@@ -80,6 +80,31 @@ function clearPendingAutoSend() {
   pendingAutoSendText.value = ''
 }
 
+/**
+ * Insert recognized speech at the textarea caret (or replace the current
+ * selection), falling back to appending at the end when the input is not
+ * focused. Keeps the caret right after the inserted text so students can
+ * keep talking / continue typing.
+ */
+function insertTranscriptAtCaret(text: string) {
+  const current = messageInput.value
+  const el = document.activeElement as HTMLTextAreaElement | null
+  if (el && el.tagName === 'TEXTAREA' && typeof el.selectionStart === 'number') {
+    const start = el.selectionStart
+    const end = el.selectionEnd
+    const replacement = start === end ? `${text} ` : text
+    messageInput.value = current.slice(0, start) + replacement + current.slice(end)
+    nextTick(() => {
+      const caret = start + replacement.length
+      el.focus()
+      el.setSelectionRange(caret, caret)
+    })
+    return
+  }
+  const trimmed = current.trim()
+  messageInput.value = trimmed ? `${trimmed} ${text}` : text
+}
+
 async function debouncedAutoSend(text: string) {
   // Double-check auto-send is enabled before proceeding
   if (!autoSendEnabled.value) {
@@ -377,9 +402,9 @@ async function startListening() {
       await transcribeForMediaStream(stream.value, {
         onSentenceEnd: (delta) => {
           if (delta && delta.trim()) {
-            // Append transcribed text to message input
-            const currentText = messageInput.value.trim()
-            messageInput.value = currentText ? `${currentText} ${delta}` : delta
+            // Insert recognized speech at the caret position (fill into the
+            // input box), never auto-send unless the user enabled auto-send.
+            insertTranscriptAtCaret(delta)
             console.info('[ChatArea] Received transcription delta:', delta)
 
             // Auto-send if enabled - check the current value (not captured in closure)

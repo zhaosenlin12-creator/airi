@@ -19,6 +19,8 @@ export interface ChatSlicesToolCallResult {
 
 export interface YXZCreationPayload {
   kind: 'yxz-creation'
+  /** Backend preview session that owns the preview image and 3D export. */
+  sessionId?: string
   description: string
   options: string[]
   preview: {
@@ -26,12 +28,15 @@ export interface YXZCreationPayload {
     src: string
     caption: string
   }
+  previews?: Array<{ index: number, src: string, caption: string }>
   model?: {
     modelUrl: string
     stlUrl: string
     glbUrl: string
+    engine?: string
   }
-  status: 'preview' | 'model-ready' | 'adopted' | 'redescribe'
+  status: 'preview' | 'model-building' | 'model-ready' | 'adopted' | 'redescribe'
+  progressMsg?: string
 }
 
 export type ChatSlices = ChatSlicesText | ChatSlicesToolCall | ChatSlicesToolCallResult

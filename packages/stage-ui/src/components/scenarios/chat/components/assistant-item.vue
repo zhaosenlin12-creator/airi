@@ -54,10 +54,13 @@ const boxClasses = computed(() => [
 ])
 const copyText = computed(() => getChatHistoryItemCopyText(props.message as ChatHistoryItem))
 const creation = computed(() => props.message.yxzCreation)
+const isInternalTool = (toolName: string) => toolName.startsWith('builtIn_')
+const hideInternalFailure = computed(() => !creation.value
+  && props.message.slices?.some(slice => slice.type === 'tool-call' && isInternalTool(slice.toolCall.toolName)))
 </script>
 
 <template>
-  <div flex :class="containerClass" class="ph-no-capture">
+  <div v-if="!hideInternalFailure" flex :class="containerClass" class="ph-no-capture">
     <ChatActionMenu
       :copy-text="copyText"
       :can-delete="!showPlaceholder"
@@ -80,7 +83,7 @@ const creation = computed(() => props.message.yxzCreation)
           <div v-if="resolvedSlices.length > 0" class="break-words" text="primary-700 dark:primary-100">
             <template v-for="(slice, sliceIndex) in resolvedSlices" :key="sliceIndex">
               <ChatToolCallBlock
-                v-if="slice.type === 'tool-call'"
+                v-if="slice.type === 'tool-call' && !isInternalTool(slice.toolCall.toolName)"
                 :tool-name="slice.toolCall.toolName"
                 :args="slice.toolCall.args"
                 class="mb-2"
@@ -104,8 +107,11 @@ const creation = computed(() => props.message.yxzCreation)
             :preview-src="creation.preview.src"
             :caption="creation.preview.caption"
             :description="creation.description"
+            :previews="creation.previews"
             :model-url="creation.model?.glbUrl"
             :stl-url="creation.model?.stlUrl"
+            :status="creation.status"
+            :progress-msg="creation.progressMsg"
             :interactive="false"
             class="mt-3"
           />

@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import type { ChatProvider } from '@xsai-ext/providers/utils'
 
-import { errorMessageFrom } from '@moeru/std'
 import { isStageTamagotchi } from '@proj-airi/stage-shared'
 import { useAudioAnalyzer } from '@proj-airi/stage-ui/composables'
 import { useAudioContext } from '@proj-airi/stage-ui/stores/audio'
@@ -11,35 +10,47 @@ import { useConsciousnessStore } from '@proj-airi/stage-ui/stores/modules/consci
 import { useHearingSpeechInputPipeline, useHearingStore } from '@proj-airi/stage-ui/stores/modules/hearing'
 import { useProvidersStore } from '@proj-airi/stage-ui/stores/providers'
 import { useSettings, useSettingsAudioDevice } from '@proj-airi/stage-ui/stores/settings'
+import { YXZLaserCardPanel } from '@proj-airi/stage-ui/components/scenes'
 import { BasicTextarea, FieldCombobox } from '@proj-airi/ui'
 import { until, useLocalStorage } from '@vueuse/core'
 import { storeToRefs } from 'pinia'
 import { DropdownMenuContent, DropdownMenuItem, DropdownMenuPortal, DropdownMenuRoot, DropdownMenuTrigger, PopoverContent, PopoverRoot, PopoverTrigger } from 'reka-ui'
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { toast } from 'vue-sonner'
 
 import IndicatorMicVolume from './IndicatorMicVolume.vue'
+
+import { ChatSendTimeoutError, notifyYXZChatRecovery, withChatSendTimeout } from './chat-send-recovery'
 
 const messageInput = ref('')
 const hearingPopoverOpen = ref(false)
 const isComposing = ref(false)
 const isListening = ref(false) // Transcription listening state (separate from microphone enabled)
+const laserCardOpen = ref(false)
 const DOUBLE_ENTER_INTERVAL_MS = 300
 const TRAILING_NEWLINES_REGEX = /[\r\n]+$/
 const SEND_MODES = ['enter', 'ctrl-enter', 'double-enter'] as const
 type SendMode = (typeof SEND_MODES)[number]
 const sendMode = useLocalStorage<SendMode>('ui/chat/settings/send-mode', 'enter')
 const lastEnterTime = ref(0)
+const STALE_TRANSPORT_ERROR_REGEX = /structuredClone|无法在[“"]Window[”"]上执行/
 
 const providersStore = useProvidersStore()
 const { activeProvider, activeModel } = storeToRefs(useConsciousnessStore())
-const { themeColorsHueDynamic } = storeToRefs(useSettings())
+const { stageModelSelected, themeColorsHueDynamic } = storeToRefs(useSettings())
+const isYXZExhibition = computed(() => stageModelSelected.value === 'preset-yxz')
+const quickStartPrompts = [
+  '帮我设计一个校园纪念徽章',
+  '我想做一个可爱的桌面摆件',
+  '帮我把一个环保创意做成 3D 作品',
+] as const
 
 const { askPermission, startStream } = useSettingsAudioDevice()
 const { enabled, selectedAudioInput, stream, audioInputs } = storeToRefs(useSettingsAudioDevice())
 const chatOrchestrator = useChatOrchestratorStore()
 const chatSession = useChatSessionStore()
-const { ingest, onAfterMessageComposed } = chatOrchestrator
+const { cancelPendingSends, ingest, onAfterMessageComposed } = chatOrchestrator
 const { messages } = storeToRefs(chatSession)
 const { audioContext } = useAudioContext()
 const { t } = useI18n()
@@ -99,22 +110,51 @@ async function debouncedAutoSend(text: string) {
         // the next SentenceEnd during streaming does not append to the message we already committed.
         messageInput.value = ''
         pendingAutoSendText.value = ''
-        const providerConfig = providersStore.getProviderConfig(activeProvider.value)
-        await ingest(textToSend, {
-          chatProvider: await providersStore.getProviderInstance(activeProvider.value) as ChatProvider,
-          model: activeModel.value,
-          providerConfig,
-        })
+        await sendMessage(textToSend)
       }
       catch (err) {
         console.error('[ChatArea] Auto-send error:', err)
         // Preserve any transcription that arrived while ingest was in flight (see PR review).
         messageInput.value = [textToSend, messageInput.value.trim()].filter(Boolean).join(' ')
         pendingAutoSendText.value = [textToSend, pendingAutoSendText.value.trim()].filter(Boolean).join(' ')
+        recoverFromSendError(err)
       }
     }
     autoSendTimeout = undefined
   }, autoSendDelay.value)
+}
+
+async function sendMessage(text: string) {
+  const operation = (async () => {
+    const providerConfig = providersStore.getProviderConfig(activeProvider.value)
+    await ingest(text, {
+      chatProvider: await providersStore.getProviderInstance(activeProvider.value) as ChatProvider,
+      model: activeModel.value,
+      providerConfig,
+    })
+  })()
+
+  return withChatSendTimeout(operation, () => {
+    cancelPendingSends(chatSession.activeSessionId)
+  })
+}
+
+function recoverFromSendError(error: unknown) {
+  // Keep implementation details in the console only. The conversation should
+  // remain readable and actionable for a visitor at the exhibition.
+  const timedOut = error instanceof ChatSendTimeoutError
+  console.error('[ChatArea] Send recovery:', error)
+  notifyYXZChatRecovery()
+  toast.error(timedOut ? '连接等待时间较长' : '刚才没有连接成功', {
+    description: timedOut
+      ? '我已经保留你的内容，请稍后重试或切换一个可用模型。'
+      : '我已经保留你的内容，请再试一次。',
+  })
+
+  // Remove only stale internal transport cards left by an older session.
+  const cleanMessages = messages.value.filter(message => message.role !== 'error' || !STALE_TRANSPORT_ERROR_REGEX.test(message.content))
+  if (cleanMessages.length !== messages.value.length)
+    chatSession.setSessionMessages(chatSession.activeSessionId, cleanMessages)
 }
 
 async function handleSend() {
@@ -126,24 +166,20 @@ async function handleSend() {
   messageInput.value = ''
 
   try {
-    const providerConfig = providersStore.getProviderConfig(activeProvider.value)
-
-    await ingest(textToSend, {
-      chatProvider: await providersStore.getProviderInstance(activeProvider.value) as ChatProvider,
-      model: activeModel.value,
-      providerConfig,
-    })
+    await sendMessage(textToSend)
   }
   catch (error) {
     messageInput.value = textToSend
-    chatSession.setSessionMessages(chatSession.activeSessionId, [
-      ...messages.value.slice(0, -1),
-      {
-        role: 'error',
-        content: errorMessageFrom(error) ?? 'Failed to send message',
-      },
-    ])
+    recoverFromSendError(error)
   }
+}
+
+async function sendQuickStart(prompt: string) {
+  if (messageInput.value.trim())
+    return
+
+  messageInput.value = prompt
+  await handleSend()
 }
 
 function sendFromKeyboard() {
@@ -392,16 +428,13 @@ async function stopListening() {
       const textToSend = pendingAutoSendText.value.trim()
       pendingAutoSendText.value = ''
       try {
-        const providerConfig = providersStore.getProviderConfig(activeProvider.value)
-        await ingest(textToSend, {
-          chatProvider: await providersStore.getProviderInstance(activeProvider.value) as ChatProvider,
-          model: activeModel.value,
-          providerConfig,
-        })
+        await sendMessage(textToSend)
         messageInput.value = ''
       }
       catch (err) {
         console.error('[ChatArea] Auto-send error on stop:', err)
+        messageInput.value = [textToSend, messageInput.value.trim()].filter(Boolean).join(' ')
+        recoverFromSendError(err)
       }
     }
 
@@ -462,6 +495,23 @@ watch(sendMode, () => {
         'bg-primary-200/20 dark:bg-primary-400/20',
       ]"
     >
+      <div
+        v-if="isYXZExhibition && !messageInput.trim()"
+        class="flex flex-wrap gap-1.5 border-b border-primary-200/30 px-3 pb-2 pt-2"
+        aria-label="宜小智体验示例"
+      >
+        <span class="w-full text-xs text-primary-600/75 dark:text-primary-200/80">不知道怎么开始？选一个创作方向：</span>
+        <button
+          v-for="prompt in quickStartPrompts"
+          :key="prompt"
+          type="button"
+          class="rounded-full border border-primary-300/50 bg-white/80 px-2.5 py-1 text-xs text-primary-700 shadow-sm backdrop-blur transition hover:bg-white active:scale-95 dark:border-primary-500/40 dark:bg-neutral-900/70 dark:text-primary-200"
+          @click="void sendQuickStart(prompt)"
+        >
+          {{ prompt }}
+        </button>
+      </div>
+
       <BasicTextarea
         v-model="messageInput"
         :submit-on-enter="false"
@@ -479,10 +529,47 @@ watch(sendMode, () => {
         @compositionend="isComposing = false"
       />
 
-      <!-- Bottom-left action button: Microphone -->
+      <!-- Bottom-left action buttons: Create (+) / Send mode / Microphone -->
       <div
         absolute bottom-2 left-2 z-10 flex items-center gap-2
       >
+        <!-- Create menu: laser-cut business card -->
+        <DropdownMenuRoot>
+          <DropdownMenuTrigger as-child>
+            <button
+              :class="[
+                'h-8 w-8 flex items-center justify-center rounded-md outline-none transition-all duration-200 active:scale-95',
+                'text-lg text-neutral-500 dark:text-neutral-400',
+              ]"
+              :title="'创建'"
+              aria-label="创建"
+            >
+              <div class="i-ph:plus-bold h-5 w-5" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuPortal>
+            <DropdownMenuContent
+              side="top"
+              align="start"
+              :side-offset="8"
+              :class="[
+                'z-50 min-w-[220px] rounded-xl border border-neutral-200/60 bg-neutral-50/90 p-1',
+                'shadow-lg backdrop-blur-md dark:border-neutral-800/30 dark:bg-neutral-900/80',
+                'flex flex-col gap-1',
+              ]"
+            >
+              <DropdownMenuItem
+                class="w-full flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-xs outline-none transition-colors hover:bg-primary-100/60 dark:hover:bg-primary-900/40"
+                @select="laserCardOpen = true"
+              >
+                <div class="i-ph:cardholder-bold h-4 w-4 text-primary-600 dark:text-primary-300" />
+                <span>激光切割名片</span>
+                <small class="text-neutral-400">预制模板 · 正面编辑 · SVG 切割</small>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenuPortal>
+        </DropdownMenuRoot>
+
         <DropdownMenuRoot>
           <DropdownMenuTrigger as-child>
             <button
@@ -595,5 +682,10 @@ watch(sendMode, () => {
         </PopoverRoot>
       </div>
     </div>
+
+    <YXZLaserCardPanel
+      v-model:open="laserCardOpen"
+      @status="(status) => console.log('[LaserCard]', status)"
+    />
   </div>
 </template>

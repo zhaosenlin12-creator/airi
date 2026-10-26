@@ -1,7 +1,11 @@
+const TRAILING_SLASH_RE = /\/$/
+const HTTP_URL_RE = /^https?:\/\//i
+const DASH_RE = /-/g
+
 export interface YXZPreviewRequest {
   prompt: string
   n?: number
-  prefer?: 'minimax' | 'jojo' | 'local'
+  prefer?: 'aixj' | 'minimax' | 'jojo' | 'local'
   sessionId?: string
   signal?: AbortSignal
 }
@@ -24,6 +28,7 @@ export interface YXZPreviewResponse {
 export interface YXZModelRequest {
   sessionId: string
   imageIndex: number
+  customImage?: string
   signal?: AbortSignal
   onProgress?: (progress: YXZModelProgress) => void
 }
@@ -41,11 +46,20 @@ export interface YXZModelResponse {
   glbUrl: string
 }
 
-export const YXZ_PREVIEW_TIMEOUT_MS = 120_000
+export interface YXZLocalSoftware {
+  id: string
+  name: string
+  kind: '3d-print' | '3d-edit' | 'laser' | string
+  available: boolean
+  path?: string | null
+  formats: string[]
+}
+
+export const YXZ_PREVIEW_TIMEOUT_MS = 180_000
 export const YXZ_MODEL_TIMEOUT_MS = 10 * 60_000
 
 export function getYXZPrintApiBase() {
-  return (import.meta.env.VITE_CARTOON_PRINT_API || 'http://127.0.0.1:8000').replace(/\/$/, '')
+  return (import.meta.env.VITE_CARTOON_PRINT_API || 'http://127.0.0.1:8000').replace(TRAILING_SLASH_RE, '')
 }
 
 export function buildYXZPreviewPrompt(description: string, options: string[] = []) {
@@ -85,7 +99,7 @@ export function previewImageSrc(item: YXZPreviewItem, baseUrl = getYXZPrintApiBa
     return item.b64.startsWith('data:') ? item.b64 : `data:image/png;base64,${item.b64}`
   if (!item.path)
     return ''
-  if (/^https?:\/\//i.test(item.path))
+  if (HTTP_URL_RE.test(item.path))
     return item.path
   return `${baseUrl}${item.path.startsWith('/') ? item.path : `/${item.path}`}`
 }
@@ -131,9 +145,50 @@ function createRequestSignal(externalSignal: AbortSignal | undefined, timeoutMs:
 }
 
 function absolutePrintApiUrl(path: string, baseUrl = getYXZPrintApiBase()) {
-  if (/^https?:\/\//i.test(path))
+  if (HTTP_URL_RE.test(path))
     return path
   return `${baseUrl}${path.startsWith('/') ? path : `/${path}`}`
+}
+
+export function yxzPreviewPageUrl(modelUrl: string) {
+  if (typeof window === 'undefined')
+    return modelUrl
+  const url = new URL('/yxz-preview', window.location.origin)
+  url.searchParams.set('model', modelUrl)
+  return url.toString()
+}
+
+export async function detectYXZLocalSoftware(fetcher: typeof fetch = fetch): Promise<YXZLocalSoftware[]> {
+  const response = await fetcher(`${getYXZPrintApiBase()}/api/software/detect`)
+  if (!response.ok)
+    throw new Error(`本机软件检测失败（HTTP ${response.status}）`)
+  const raw: unknown = await response.json()
+  if (!isRecord(raw) || !Array.isArray(raw.tools))
+    return []
+  return raw.tools.filter((item): item is YXZLocalSoftware => {
+    if (!isRecord(item))
+      return false
+    return typeof item.id === 'string' && typeof item.name === 'string' && typeof item.available === 'boolean' && Array.isArray(item.formats)
+  }).map(item => ({
+    id: item.id,
+    name: item.name,
+    kind: typeof item.kind === 'string' ? item.kind : '3d-edit',
+    available: item.available,
+    path: typeof item.path === 'string' ? item.path : null,
+    formats: item.formats.filter((format): format is string => typeof format === 'string'),
+  }))
+}
+
+export async function openYXZExportInSoftware(request: { softwareId: string, sessionId: string, format?: string }, fetcher: typeof fetch = fetch) {
+  const response = await fetcher(`${getYXZPrintApiBase()}/api/software/open`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ software_id: request.softwareId, session_id: request.sessionId, fmt: request.format ?? 'stl' }),
+  })
+  const raw: unknown = await response.json().catch(() => undefined)
+  if (!response.ok)
+    throw new Error(isRecord(raw) && typeof raw.detail === 'string' ? raw.detail : `打开软件失败（HTTP ${response.status}）`)
+  return raw
 }
 
 async function pollYXZModelProgress(sessionId: string, signal: AbortSignal, onProgress?: (progress: YXZModelProgress) => void, fetcher: typeof fetch = fetch) {
@@ -186,6 +241,7 @@ export async function createYXZCartoonModel(request: YXZModelRequest, fetcher: t
       body: JSON.stringify({
         session_id: request.sessionId,
         image_index: request.imageIndex,
+        ...(request.customImage ? { custom_image: request.customImage } : {}),
         layers: 6,
         layer_step_mm: 4,
         base_mm: 2,
@@ -235,8 +291,8 @@ export async function createYXZPreview(request: YXZPreviewRequest, fetcher: type
       body: JSON.stringify({
         prompt,
         n: Math.min(Math.max(request.n ?? 4, 1), 4),
-        prefer: request.prefer ?? 'minimax',
-        session_id: request.sessionId ?? crypto.randomUUID().replace(/-/g, '').slice(0, 12),
+        prefer: request.prefer ?? 'aixj',
+        session_id: request.sessionId ?? crypto.randomUUID().replace(DASH_RE, '').slice(0, 12),
       }),
       signal: linked.signal,
     })

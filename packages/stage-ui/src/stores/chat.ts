@@ -13,6 +13,7 @@ import { ref, toRaw } from 'vue'
 import { useAnalytics } from '../composables'
 import { useLlmmarkerParser } from '../composables/llm-marker-parser'
 import { categorizeResponse, createStreamingCategorizer } from '../composables/response-categoriser'
+import { generateYXZModelFromConfirmation } from '../tools/yxz-creation'
 import { buildContextPromptMessage } from './chat/context-prompt'
 import { createDatetimeContext, createMinecraftContext } from './chat/context-providers'
 import { useChatContextStore } from './chat/context-store'
@@ -22,6 +23,10 @@ import { useChatStreamStore } from './chat/stream-store'
 import { useContextObservabilityStore } from './devtools/context-observability'
 import { useLLM } from './llm'
 import { useConsciousnessStore } from './modules/consciousness'
+import { useSettingsStageModel } from './settings/stage-model'
+
+const YXZ_SYSTEM_GUIDANCE = `你是“宜小智AI智能创造系统”的宜小智，用自然、简洁的中文交流。主动引导用户在约 5 分钟内确定要做的产品、用途、受众、风格和数量，一次只问最关键的一个问题，记住已有回答，避免重复提问。你有直接连接打印后台的工具 yxz_generatePreview 与 yxz_generate3DModel：信息足够时主动生成预览图并在对话展示，不要叫用户手动点击“开始创作”，也不要声称自己没有 3D 能力。用户确认预览后再生成 3D 模型；未经用户确认不得自动打印、登录或承诺取件。`
+const YXZ_MODEL_CONFIRMATION_RE = /生成|制作|做成|开始|确认|同意|可以|继续|好/
 
 interface SendOptions {
   model: string
@@ -77,6 +82,10 @@ export const useChatOrchestratorStore = defineStore('chat-orchestrator', () => {
   const sending = ref(false)
   const pendingQueuedSends = ref<QueuedSend[]>([])
   const pendingQueuedSendCount = ref(0)
+  // Keep an abort handle for the currently running turn as well as queued turns.
+  // Without this, a provider that never resolves leaves the UI in a permanent
+  // "thinking" state even though the input has already been restored.
+  const activeSendControllers = new Map<string, AbortController>()
   const hooks = createChatHooks()
 
   const sendQueue = createQueue<QueuedSend>({
@@ -157,6 +166,9 @@ export const useChatOrchestratorStore = defineStore('chat-orchestrator', () => {
 
     sending.value = true
 
+    const abortController = new AbortController()
+    activeSendControllers.set(sessionId, abortController)
+
     const isForegroundSession = () => sessionId === activeSessionId.value
 
     const buildingMessage: StreamingAssistantMessage = { role: 'assistant', content: '', slices: [], tool_results: [], createdAt: Date.now(), id: nanoid() }
@@ -208,6 +220,39 @@ export const useChatOrchestratorStore = defineStore('chat-orchestrator', () => {
         id: nanoid(),
       })
       const sessionMessagesForSend = chatSession.getSessionMessages(sessionId)
+
+      // The exhibition preset must not depend on a provider choosing to emit
+      // a function/tool call. Compatible local models sometimes answer a
+      // confirmation in plain text, which used to leave the visitor stuck
+      // after the preview. Validate the preview card and confirmation, then
+      // execute the same guarded backend operation deterministically.
+      const latestPreviewCard = [...sessionMessagesForSend].reverse().find(message => message.role === 'assistant'
+        && message.yxzCreation?.kind === 'yxz-creation'
+        && message.yxzCreation.status === 'preview')
+      const isYXZModelConfirmation = !!latestPreviewCard
+        && YXZ_MODEL_CONFIRMATION_RE.test(sendingMessage)
+
+      if (isYXZModelConfirmation) {
+        try {
+          const fallback = await generateYXZModelFromConfirmation(sessionId, sendingMessage)
+          const responseText = fallback.message
+          buildingMessage.content = responseText
+          buildingMessage.slices = [{ type: 'text', text: responseText }]
+          updateUI()
+          await hooks.emitTokenLiteralHooks(responseText, streamingMessageContext)
+          await hooks.emitStreamEndHooks(streamingMessageContext)
+          await hooks.emitAssistantResponseEndHooks(responseText, streamingMessageContext)
+          await hooks.emitAfterSendHooks(sendingMessage, streamingMessageContext)
+          await hooks.emitAssistantMessageHooks(buildingMessage, responseText, streamingMessageContext)
+          await hooks.emitChatTurnCompleteHooks({ output: buildingMessage, outputText: responseText, toolCalls: [] }, streamingMessageContext)
+          if (isForegroundSession())
+            streamingMessage.value = { role: 'assistant', content: '', slices: [], tool_results: [] }
+          return
+        }
+        catch (error) {
+          console.error('[宜小智] 预览确认后的 3D 生成失败，将继续交给对话模型处理', error)
+        }
+      }
 
       let effectiveProviderId = options.providerId || activeProvider.value
       let categorizer = createStreamingCategorizer(effectiveProviderId)
@@ -293,6 +338,14 @@ export const useChatOrchestratorStore = defineStore('chat-orchestrator', () => {
         return rawMessage
       })
 
+      if (useSettingsStageModel().stageModelSelected === 'preset-yxz') {
+        const first = newMessages[0]
+        if (first?.role === 'system')
+          newMessages[0] = { ...first, content: `${first.content}\n${YXZ_SYSTEM_GUIDANCE}` }
+        else
+          newMessages.unshift({ role: 'system', content: YXZ_SYSTEM_GUIDANCE })
+      }
+
       const contextsSnapshot = chatContext.getContextsSnapshot()
       const contextPromptMessage = buildContextPromptMessage(contextsSnapshot)
       if (contextPromptMessage) {
@@ -348,6 +401,7 @@ export const useChatOrchestratorStore = defineStore('chat-orchestrator', () => {
         providerId: options.providerId ?? activeProvider.value,
         scope: 'consciousness',
         tools: options.tools,
+        abortSignal: abortController.signal,
         // NOTICE: xsai stream may emit `finish` before tool steps continue, so keep waiting until
         // the final non-tool finish to avoid ending the chat turn with no assistant reply.
         waitForTools: true,
@@ -413,6 +467,8 @@ export const useChatOrchestratorStore = defineStore('chat-orchestrator', () => {
       throw error
     }
     finally {
+      if (activeSendControllers.get(sessionId) === abortController)
+        activeSendControllers.delete(sessionId)
       sending.value = false
     }
   }
@@ -455,6 +511,11 @@ export const useChatOrchestratorStore = defineStore('chat-orchestrator', () => {
   }
 
   function cancelPendingSends(sessionId?: string) {
+    for (const [activeSessionId, controller] of activeSendControllers) {
+      if (!sessionId || activeSessionId === sessionId)
+        controller.abort(new Error('Chat send cancelled'))
+    }
+
     for (const queued of pendingQueuedSends.value) {
       if (sessionId && queued.sessionId !== sessionId)
         continue

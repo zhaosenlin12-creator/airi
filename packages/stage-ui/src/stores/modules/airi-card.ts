@@ -252,10 +252,16 @@ export const useAiriCardStore = defineStore('airi-card', () => {
   }
 
   function initialize() {
-    if (cards.value.has('default'))
+    const existingDefault = cards.value.get('default')
+    if (existingDefault) {
+      // Migrate the exhibition's old AIRI/ReLU label so returning browsers
+      // also show the single 宜小智 identity requested by the product.
+      if (existingDefault.name === 'ReLU')
+        cards.value.set('default', { ...existingDefault, name: '宜小智' })
       return
+    }
     cards.value.set('default', newAiriCard({
-      name: 'ReLU',
+      name: '宜小智',
       version: '1.0.0',
       description: SystemPromptV2(
         t('base.prompt.prefix'),

@@ -12,6 +12,7 @@ import { computed, ref, shallowRef, watch } from 'vue'
 import vadWorkletUrl from '../../workers/vad/process.worklet?worker&url'
 
 import { useProvidersStore } from '../providers'
+import { useSettingsStageModel } from '../settings/stage-model'
 import { streamAliyunTranscription } from '../providers/aliyun/stream-transcription'
 import { streamWebSpeechAPITranscription } from '../providers/web-speech-api'
 
@@ -579,9 +580,13 @@ export const useHearingSpeechInputPipeline = defineStore('modules:hearing:speech
 
         // Get provider config for language settings
         const providerConfig = providersStore.getProviderConfig(providerId) || {}
-        const language = (options?.providerOptions?.language as string)
-          || (providerConfig.language as string)
-          || 'en-US'
+        // 宜小智的入口是中文对话；旧版本把 Web Speech 默认保存成 en-US，
+        // 因此这里对宜小智显式锁定 zh-CN，避免浏览器把“白色”识别成英文。
+        const language = useSettingsStageModel().stageModelSelected === 'preset-yxz'
+          ? 'zh-CN'
+          : (options?.providerOptions?.language as string)
+            || (providerConfig.language as string)
+            || 'en-US'
 
         // Web Speech API in continuous mode should run indefinitely - no idle timeout
         // Only stop when explicitly requested (e.g., microphone disabled)

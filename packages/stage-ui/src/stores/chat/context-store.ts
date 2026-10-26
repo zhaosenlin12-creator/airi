@@ -4,6 +4,7 @@ import { ContextUpdateStrategy } from '@proj-airi/server-sdk'
 import { defineStore } from 'pinia'
 import { ref, toRaw } from 'vue'
 
+import { cloneForTransport } from '../../utils/clone-for-transport'
 import { getEventSourceKey } from '../../utils/event-source'
 
 export interface ContextBucketSnapshot {
@@ -30,14 +31,7 @@ export const useChatContextStore = defineStore('chat-context', () => {
   const contextHistory = ref<ContextHistoryEntry[]>([])
 
   function cloneMessage(message: ContextMessage): ContextMessage {
-    const rawMessage = toRaw(message)
-
-    try {
-      return structuredClone(rawMessage)
-    }
-    catch {
-      return JSON.parse(JSON.stringify(rawMessage)) as ContextMessage
-    }
+    return cloneForTransport(toRaw(message))
   }
 
   function cloneSnapshot() {

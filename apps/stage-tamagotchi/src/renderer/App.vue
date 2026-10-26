@@ -133,8 +133,9 @@ onMounted(async () => {
 
   if (settingsStore.stageModelSelected === 'preset-yxz') {
     const sessionId = chatSessionStore.activeSessionId
-    const result = ensureYXZProactiveIntro(chatSessionStore.getSessionMessages(sessionId))
-    if (result.added)
+    const currentMessages = chatSessionStore.getSessionMessages(sessionId)
+    const result = ensureYXZProactiveIntro(currentMessages)
+    if (result.added || result.messages !== currentMessages)
       chatSessionStore.setSessionMessages(sessionId, result.messages)
   }
 

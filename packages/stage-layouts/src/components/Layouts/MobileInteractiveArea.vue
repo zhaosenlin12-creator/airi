@@ -18,6 +18,7 @@ import { storeToRefs } from 'pinia'
 import { computed, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
+import { toast } from 'vue-sonner'
 
 import IndicatorMicVolume from '../Widgets/IndicatorMicVolume.vue'
 import ActionAbout from './InteractiveArea/Actions/About.vue'
@@ -25,6 +26,7 @@ import ActionViewControls from './InteractiveArea/Actions/ViewControls.vue'
 import ViewControlInputs from './ViewControls/Inputs.vue'
 
 import { BackgroundDialogPicker } from '../Backgrounds'
+import { ChatSendTimeoutError, notifyYXZChatRecovery, withChatSendTimeout } from '../Widgets/chat-send-recovery'
 
 const { isDark, toggleDark } = useTheme()
 const hearingDialogOpen = ref(false)
@@ -35,7 +37,9 @@ const { cleanupMessages } = useChatMaintenanceStore()
 const { messages } = storeToRefs(chatSession)
 const { streamingMessage } = storeToRefs(chatStream)
 const { sending } = storeToRefs(chatOrchestrator)
+const { stageModelSelected: settingsStageModelSelected } = storeToRefs(useSettings())
 const historyMessages = computed(() => messages.value as unknown as ChatHistoryItem[])
+const assistantLabel = computed(() => settingsStageModelSelected.value === 'preset-yxz' ? '宜小智' : undefined)
 
 function handleDeleteMessage(index: number) {
   messages.value = messages.value.filter((_, messageIndex) => messageIndex !== index)
@@ -56,7 +60,7 @@ useResizeObserver(document.documentElement, () => screenSafeArea.update())
 const { themeColorsHueDynamic, stageViewControlsEnabled } = storeToRefs(useSettings())
 const settingsAudioDevice = useSettingsAudioDevice()
 const { enabled, selectedAudioInput, stream, audioInputs } = storeToRefs(settingsAudioDevice)
-const { ingest, onAfterMessageComposed } = chatOrchestrator
+const { cancelPendingSends, ingest, onAfterMessageComposed } = chatOrchestrator
 const { t } = useI18n()
 const { audioContext } = useAudioContext()
 const { startAnalyzer, stopAnalyzer, volumeLevel } = useAudioAnalyzer()
@@ -82,21 +86,23 @@ async function handleSend() {
   messageInput.value = ''
 
   try {
-    const providerConfig = providersStore.getProviderConfig(activeProvider.value)
-
-    await ingest(textToSend, {
-      chatProvider: await providersStore.getProviderInstance(activeProvider.value) as ChatProvider,
-      model: activeModel.value,
-      providerConfig,
-    })
+    const operation = (async () => {
+      const providerConfig = providersStore.getProviderConfig(activeProvider.value)
+      await ingest(textToSend, {
+        chatProvider: await providersStore.getProviderInstance(activeProvider.value) as ChatProvider,
+        model: activeModel.value,
+        providerConfig,
+      })
+    })()
+    await withChatSendTimeout(operation, () => cancelPendingSends(chatSession.activeSessionId))
   }
   catch (error) {
     messageInput.value = textToSend
-    messages.value.pop()
-    messages.value.push({
-      role: 'error',
-      content: (error as Error).message,
+    notifyYXZChatRecovery()
+    toast.error(error instanceof ChatSendTimeoutError ? '连接等待时间较长' : '刚才没有连接成功', {
+      description: '我已经保留你的内容，请再试一次。',
     })
+    console.error('[MobileInteractiveArea] Send recovery:', error)
   }
 }
 
@@ -155,6 +161,7 @@ onMounted(() => {
           :messages="historyMessages"
           :sending="sending"
           :streaming-message="streamingMessage"
+          :assistant-label="assistantLabel"
           max-w="[calc(100%-3.5rem)]"
           w-full self-start pb-3 pl-3
           class="chat-history"

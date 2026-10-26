@@ -8,8 +8,11 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
 import { createSparkCommandTool, debug, mcp } from '../tools'
+import { createYXZCreationTools } from '../tools/yxz-creation'
+import { cloneForTransport } from '../utils/clone-for-transport'
 import { useModsServerChannelStore } from './mods/api/channel-server'
 import { useProvidersStore } from './providers'
+import { useSettingsStageModel } from './settings/stage-model'
 
 export type StreamEvent
   = | { type: 'text-delta', text: string }
@@ -236,7 +239,10 @@ function streamOptionsToolsCompatibilityOk(model: string, chatProvider: ChatProv
 
 async function streamFrom(model: string, chatProvider: ChatProvider, messages: Message[], sendSparkCommand: (command: WebSocketEvents['spark:command']) => void, options?: StreamOptions) {
   const chatConfig = chatProvider.chat(model)
-  const sanitized = sanitizeMessages(messages as unknown[])
+  // @xsai/stream-text clones `messages` before opening the request. Keep the
+  // final provider payload strictly cloneable because context/tool integrations
+  // can leave behind DOM, function, or circular values in a prior turn.
+  const sanitized = cloneForTransport(sanitizeMessages(messages as unknown[])) as Message[]
 
   const resolveTools = async () => {
     const tools = typeof options?.tools === 'function'
@@ -246,12 +252,17 @@ async function streamFrom(model: string, chatProvider: ChatProvider, messages: M
   }
 
   const supportedTools = streamOptionsToolsCompatibilityOk(model, chatProvider, messages, options)
+  const isYXZPreset = useSettingsStageModel().stageModelSelected === 'preset-yxz'
   const tools = supportedTools
     ? [
-        ...await mcp(),
-        ...await debug(),
+        // The exhibition preset owns its creation tools. Generic MCP/debug
+        // tools are intentionally not exposed here: leaking them produces
+        // technical names such as builtIn_mcpCallTool in visitor-facing chat.
+        ...(isYXZPreset ? [] : await mcp()),
+        ...(isYXZPreset ? [] : await debug()),
         ...await resolveTools(),
-        await createSparkCommandTool({ sendSparkCommand }),
+        ...(isYXZPreset ? await createYXZCreationTools() : []),
+        ...(isYXZPreset ? [] : [await createSparkCommandTool({ sendSparkCommand })]),
       ]
     : undefined
 

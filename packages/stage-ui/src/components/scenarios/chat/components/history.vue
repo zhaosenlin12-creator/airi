@@ -52,6 +52,13 @@ function shouldShowPlaceholder(message: ChatHistoryItem) {
 
   return message.context?.createdAt === ts || message.createdAt === ts
 }
+
+// Older sessions may contain the internal transport error that was emitted
+// before tool-call snapshots became cycle-safe. It is not useful to show that
+// implementation detail to visitors once the transport has recovered.
+function isStaleTransportError(message: ChatHistoryItem) {
+  return message.role === 'error' && /structuredClone|无法在[“"]Window[”"]上执行/.test(message.content)
+}
 const renderMessages = computed<ChatHistoryItem[]>(() => {
   if (!props.sending)
     return props.messages
@@ -111,7 +118,7 @@ function emitCreationAction(event: 'adoptCreation' | 'redescribeCreation', messa
         :data-chat-message-role="message.role"
       >
         <ChatErrorItem
-          v-if="message.role === 'error'"
+          v-if="message.role === 'error' && !isStaleTransportError(message)"
           :message="message"
           :label="labels.error"
           :show-placeholder="sending && index === renderMessages.length - 1"

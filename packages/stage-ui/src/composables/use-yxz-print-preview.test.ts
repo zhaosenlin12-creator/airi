@@ -46,4 +46,26 @@ describe('YXZ print preview adapter', () => {
     expect(result.glbUrl).toContain('/api/export/abc123/glb')
     expect(progress.some(value => value.message === '构建浮雕' && value.percent === 40)).toBe(true)
   })
+
+  it('sends a canvas-edited image when creating the printable model', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async (input, init) => {
+      if (String(input).includes('/api/progress/'))
+        return new Response(JSON.stringify({ events: [] }), { status: 200 })
+
+      const body = JSON.parse(String(init?.body)) as { custom_image?: string }
+      expect(body.custom_image).toBe('data:image/png;base64,edited')
+      return new Response(JSON.stringify({
+        session_id: 'edited123',
+        model_url: '/api/data/edited123/model/mesh.glb',
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    })
+
+    const result = await createYXZCartoonModel({
+      sessionId: 'edited123',
+      imageIndex: 0,
+      customImage: 'data:image/png;base64,edited',
+    }, fetcher)
+
+    expect(result.sessionId).toBe('edited123')
+  })
 })

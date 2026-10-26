@@ -114,7 +114,7 @@ live2d:
     x: X
     'y': 'Y'
   switch-to-vrm:
-    title: Switch to 3D Avatar?
+    title: 'Switch to 3D Avatar?'
     change-to-vrm: Click here to switch to the 3D avatar setting (VRM)
   theme-color-from-model:
     title: Extract colors from model
@@ -130,7 +130,8 @@ live2d:
     title: FPS
     description: Limit rendering frame rate
     options:
-      unlimited: âˆ?microphone: Microphone
+      unlimited: 'âˆž'
+microphone: Microphone
 models: Model
 pages:
   account:
@@ -159,7 +160,7 @@ pages:
     creator_notes: Creator Notes
     delete: Delete
     delete_card: Delete Card
-    delete_confirmation: Are you sure you want to delete this card?
+    delete_confirmation: 'Are you sure you want to delete this card?'
     description: Use AIRI character card presets
     description_label: Description
     drop_here: Drop to upload
@@ -198,7 +199,7 @@ pages:
         personality: >-
           Describe here the personality of your character. Shy ? Curious ?
           Anything else ?
-        scenario: What are the surroundings ? What is the current situation ?
+        scenario: 'What are the surroundings ? What is the current situation ?'
         greetings_field: Greetings
         greetings: How your character should say "hello" ?
         systemprompt: Explain here to the AI LLM how it should answer when prompted.
@@ -278,7 +279,7 @@ pages:
         description: Clear AIRI desktop settings and runtime state.
         reset: Reset desktop data
     confirmations:
-      tooltip: Are you sure?
+      tooltip: 'Are you sure?'
       'yes': 'Yes'
     status:
       exported: Chat sessions exported.
@@ -581,7 +582,7 @@ pages:
         Transcription (speech-to-text) model providers. e.g. Whisper.cpp,
         OpenAI, Azure Speech
     helpinfo:
-      title: First time here?
+      title: 'First time here?'
       description: >
         AIRI requires at least one {chat} provider to be configured to think,
         and behave properly. You could think of it as the brain of the
@@ -669,7 +670,8 @@ pages:
                       integration guide</a>.
     common:
       continueAnyway: Continue Anyway
-      goToModelSelection: Select Model â†?      fields:
+      goToModelSelection: 'Select Model ?'
+      fields:
         field:
           api-key:
             label: API Key Input
@@ -1215,7 +1217,7 @@ vrm:
           mouse: Mouse
           disabled: Disabled
   switch-to-vrm:
-    title: Switch to Live2D Avatar?
+    title: 'Switch to Live2D Avatar?'
     change-to-vrm: Click here to switch to the Live2D avatar setting
   theme-color-from-model:
     button-extract:

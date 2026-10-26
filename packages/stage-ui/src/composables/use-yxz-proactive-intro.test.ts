@@ -19,4 +19,16 @@ describe('YXZ proactive intro', () => {
     expect(second.added).toBe(false)
     expect(second.messages).toBe(first.messages)
   })
+
+  it('refreshes the fixed introduction text when a prior version is stored', () => {
+    const prior = ensureYXZProactiveIntro([], 123).messages
+    const legacy = [{ ...prior[0], content: '你好，我是宜小智。' }]
+
+    const result = ensureYXZProactiveIntro(legacy, 456)
+
+    expect(result.added).toBe(false)
+    expect(result.messages).not.toBe(legacy)
+    expect(result.messages[0]?.content).toBe(YXZ_PROACTIVE_INTRO_TEXT)
+    expect(result.messages[0]?.createdAt).toBe(123)
+  })
 })

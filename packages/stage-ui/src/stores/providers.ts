@@ -48,6 +48,7 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { getProviderValidationIntervalMs, listProviders as listDefinedProviders, ProviderValidationCheck } from '../libs/providers'
+import { buildMinimaxTtsBody } from '../utils/minimax-tts'
 import { buildVoiceboxTtsBody } from '../utils/voicebox-tts'
 import { getKokoroWorker } from '../workers/kokoro'
 import { getDefaultKokoroModel, KOKORO_MODELS, kokoroModelsToModelInfo } from '../workers/kokoro/constants'
@@ -1384,7 +1385,7 @@ export const useProvidersStore = defineStore('providers', () => {
       defaultOptions: () => ({
         baseUrl: 'https://api.minimaxi.com/v1/',
         model: 'speech-2.5-hd',
-        voice: 'female-1',
+        voice: 'female-shaonv',
       }),
       createProvider: async (config) => {
         const baseUrl = typeof config.baseUrl === 'string' && config.baseUrl.trim() ? config.baseUrl.trim() : 'https://api.minimaxi.com/v1/'
@@ -1409,13 +1410,25 @@ export const useProvidersStore = defineStore('providers', () => {
             baseURL: speechBaseUrl,
             model,
             fetch: async (_input: RequestInfo | URL, init?: RequestInit) => {
+              // NOTICE: MiniMax's t2a_v2 endpoint does not accept the OpenAI-style
+              // `{ input, voice }` body shape that `@xsai/generate-speech` produces.
+              // The shared `buildMinimaxTtsBody` helper translates it into the
+              // native `{ text, voice_setting, audio_setting }` shape and maps the
+              // model id; without this the API errors out and the streaming TTS
+              // pipeline silently drops the rest of the reply (which is what
+              // produced the English-fallback / incomplete playback behaviour).
+              const rawBody = typeof init?.body === 'string' && init.body.length > 0
+                ? init.body
+                : undefined
+              const minimaxBody = JSON.stringify(buildMinimaxTtsBody(rawBody))
+
               const response = await fetch(`${speechBaseUrl}t2a_v2`, {
                 method: 'POST',
                 headers: {
                   'content-type': 'application/json',
                   'authorization': `Bearer ${apiKey}`,
                 },
-                body: init?.body,
+                body: minimaxBody,
               })
 
               const json = await response.json()
@@ -1430,10 +1443,10 @@ export const useProvidersStore = defineStore('providers', () => {
               const bytes = hexToBytes(hexAudio)
               const audioBuffer = new Uint8Array(bytes.byteLength)
               audioBuffer.set(bytes)
-              return new Response(new Blob([audioBuffer], { type: 'audio/wav' }), {
+              return new Response(new Blob([audioBuffer], { type: 'audio/mpeg' }), {
                 status: 200,
                 headers: {
-                  'content-type': 'audio/wav',
+                  'content-type': 'audio/mpeg',
                 },
               })
             },
@@ -1448,17 +1461,115 @@ export const useProvidersStore = defineStore('providers', () => {
             id: 'speech-2.5-hd',
             name: 'speech-2.5-hd',
             provider: 'minimax-audio-speech',
-            description: 'MiniMax speech-2.5-hd',
+            description: 'MiniMax speech-2.5-hd (mapped to speech-2.5-hd-preview)',
+            contextLength: 0,
+            deprecated: false,
+          },
+          {
+            id: 'speech-2.5-turbo',
+            name: 'speech-2.5-turbo',
+            provider: 'minimax-audio-speech',
+            description: 'MiniMax speech-2.5-turbo (mapped to speech-2.5-turbo-preview)',
             contextLength: 0,
             deprecated: false,
           },
         ],
         listVoices: async () => [
           {
-            id: 'female-1',
-            name: 'female-1',
+            id: 'female-shaonv',
+            name: 'female-shaonv',
             provider: 'minimax-audio-speech',
+            description: '少女音 (Chinese, female, young)',
+            gender: 'female',
             languages: [{ code: 'zh-CN', title: 'Chinese' }],
+          },
+          {
+            id: 'female-yujie',
+            name: 'female-yujie',
+            provider: 'minimax-audio-speech',
+            description: '御姐音 (Chinese, female, mature)',
+            gender: 'female',
+            languages: [{ code: 'zh-CN', title: 'Chinese' }],
+          },
+          {
+            id: 'female-chengshu',
+            name: 'female-chengshu',
+            provider: 'minimax-audio-speech',
+            description: '成熟女声 (Chinese, female)',
+            gender: 'female',
+            languages: [{ code: 'zh-CN', title: 'Chinese' }],
+          },
+          {
+            id: 'male-qn-jingying',
+            name: 'male-qn-jingying',
+            provider: 'minimax-audio-speech',
+            description: '精英男声 (Chinese, male)',
+            gender: 'male',
+            languages: [{ code: 'zh-CN', title: 'Chinese' }],
+          },
+          {
+            id: 'male-qn-qingse',
+            name: 'male-qn-qingse',
+            provider: 'minimax-audio-speech',
+            description: '清澈男声 (Chinese, male)',
+            gender: 'male',
+            languages: [{ code: 'zh-CN', title: 'Chinese' }],
+          },
+          {
+            id: 'Presenter_female',
+            name: 'Presenter_female',
+            provider: 'minimax-audio-speech',
+            description: '女主持 (Chinese, female)',
+            gender: 'female',
+            languages: [{ code: 'zh-CN', title: 'Chinese' }],
+          },
+          {
+            id: 'Presenter_male',
+            name: 'Presenter_male',
+            provider: 'minimax-audio-speech',
+            description: '男主持 (Chinese, male)',
+            gender: 'male',
+            languages: [{ code: 'zh-CN', title: 'Chinese' }],
+          },
+          {
+            id: 'audiobook_male_1',
+            name: 'audiobook_male_1',
+            provider: 'minimax-audio-speech',
+            description: '有声书男声 1 (Chinese, male)',
+            gender: 'male',
+            languages: [{ code: 'zh-CN', title: 'Chinese' }],
+          },
+          {
+            id: 'audiobook_female_1',
+            name: 'audiobook_female_1',
+            provider: 'minimax-audio-speech',
+            description: '有声书女声 1 (Chinese, female)',
+            gender: 'female',
+            languages: [{ code: 'zh-CN', title: 'Chinese' }],
+          },
+          {
+            id: 'English_PassionateWarrior',
+            name: 'English_PassionateWarrior',
+            provider: 'minimax-audio-speech',
+            description: 'Passionate Warrior (English, male)',
+            gender: 'male',
+            languages: [{ code: 'en-US', title: 'English' }],
+          },
+          {
+            id: 'English_Trustworth_Man',
+            name: 'English_Trustworth_Man',
+            provider: 'minimax-audio-speech',
+            description: 'Trustworthy Man (English, male)',
+            gender: 'male',
+            languages: [{ code: 'en-US', title: 'English' }],
+          },
+          {
+            id: 'English_Graceful_Lady',
+            name: 'English_Graceful_Lady',
+            provider: 'minimax-audio-speech',
+            description: 'Graceful Lady (English, female)',
+            gender: 'female',
+            languages: [{ code: 'en-US', title: 'English' }],
           },
         ],
       },

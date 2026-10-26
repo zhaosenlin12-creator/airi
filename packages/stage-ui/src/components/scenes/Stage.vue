@@ -5,8 +5,8 @@ import type { Profile } from '@proj-airi/model-driver-lipsync/shared/wlipsync'
 import type { SpeechProviderWithExtraOptions } from '@xsai-ext/providers/utils'
 import type { UnElevenLabsOptions } from 'unspeech'
 
-import type { EmotionPayload } from '../../constants/emotions'
 import type { YXZInteractionStatus } from '../../assets/yxz/interaction'
+import type { EmotionPayload } from '../../constants/emotions'
 
 import { errorMessageFrom } from '@moeru/std'
 import { drizzle } from '@proj-airi/drizzle-duckdb-wasm'
@@ -15,7 +15,7 @@ import { createLive2DLipSync } from '@proj-airi/model-driver-lipsync'
 import { wlipsyncProfile } from '@proj-airi/model-driver-lipsync/shared/wlipsync'
 import { createPlaybackManager, createSpeechPipeline } from '@proj-airi/pipelines-audio'
 import { Live2DScene, useLive2d } from '@proj-airi/stage-ui-live2d'
-import { ThreeScene } from '@proj-airi/stage-ui-three'
+import { ThreeScene, YXZProceduralScene, YXZRealModelScene } from '@proj-airi/stage-ui-three'
 import { animations } from '@proj-airi/stage-ui-three/assets/vrm'
 import { createQueue } from '@proj-airi/stream-kit'
 import { useBroadcastChannel } from '@vueuse/core'
@@ -31,6 +31,7 @@ import YXZPrintPreviewPanel from './YXZPrintPreviewPanel.vue'
 
 import { useDelayMessageQueue, useEmotionsMessageQueue } from '../../composables/queues'
 import { useAuthProviderSync } from '../../composables/use-auth-provider-sync'
+import { YXZ_PROACTIVE_INTRO_TEXT } from '../../composables/use-yxz-proactive-intro'
 import { llmInferenceEndToken } from '../../constants'
 import { EMOTION_EmotionMotionName_value, EMOTION_VRMExpressionName_value, EmotionThinkMotionName } from '../../constants/emotions'
 import { useAudioContext, useSpeakingStore } from '../../stores/audio'
@@ -76,10 +77,12 @@ const {
   live2dRenderScale,
 } = storeToRefs(settingsStore)
 const { mouthOpenSize } = storeToRefs(useSpeakingStore())
-const { audioContext } = useAudioContext()
+const { audioContext, calculateVolume } = useAudioContext()
 const currentAudioSource = ref<AudioBufferSourceNode>()
 
-const { onBeforeMessageComposed, onBeforeSend, onTokenLiteral, onTokenSpecial, onStreamEnd, onAssistantResponseEnd } = useChatOrchestratorStore()
+const chatOrchestrator = useChatOrchestratorStore()
+const { onBeforeMessageComposed, onBeforeSend, onTokenLiteral, onTokenSpecial, onStreamEnd, onAssistantResponseEnd } = chatOrchestrator
+const { sending } = storeToRefs(chatOrchestrator)
 const chatHookCleanups: Array<() => void> = []
 // WORKAROUND: clear previous handlers on unmount to avoid duplicate calls when this component remounts.
 //             We keep per-hook disposers instead of wiping the global chat hooks to play nicely with
@@ -449,11 +452,21 @@ function startLipSyncLoop() {
     return
 
   const tick = () => {
-    if (!nowSpeaking.value || !live2dLipSync.value) {
+    if (!nowSpeaking.value) {
       mouthOpenSize.value = 0
     }
-    else {
+    else if (stageModelRenderer.value === 'live2d' && live2dLipSync.value) {
       mouthOpenSize.value = live2dLipSync.value.getMouthOpen()
+    }
+    else if (stageModelRenderer.value === 'image' && stageModelSelected.value === 'preset-yxz' && audioAnalyser.value) {
+      // YXZ has dedicated closed/open mouth geometry rather than Live2D
+      // parameters. Feed it a smoothed, bounded level from the same TTS
+      // analyser used by playback, so the mouth follows real speech energy.
+      const level = calculateVolume(audioAnalyser.value)
+      mouthOpenSize.value = Math.min(1, Math.max(0, level))
+    }
+    else {
+      mouthOpenSize.value = 0
     }
     lipSyncLoopId.value = requestAnimationFrame(tick)
   }
@@ -486,10 +499,14 @@ function resetLive2dLipSync() {
 }
 
 function syncLipSyncLoop() {
-  if (shouldRunLive2dLipSyncLoop({
+  const shouldRunLive2d = shouldRunLive2dLipSyncLoop({
     stageModelRenderer: stageModelRenderer.value,
     paused: Boolean(props.paused),
-  }) && lipSyncStarted.value) {
+  }) && lipSyncStarted.value
+  const shouldRunYXZ = stageModelRenderer.value === 'image'
+    && stageModelSelected.value === 'preset-yxz'
+    && !props.paused
+  if (shouldRunLive2d || shouldRunYXZ) {
     startLipSyncLoop()
     return
   }
@@ -528,6 +545,49 @@ function setupAnalyser() {
 
 let currentChatIntent: ReturnType<typeof speechRuntimeStore.openIntent> | null = null
 const assistantResponseText = ref('')
+const welcomeSpeechBusy = ref(false)
+const welcomeSpeechNeedsGesture = ref(false)
+const yxzRealModelFailed = ref(false)
+
+function handleYXZChatRecovery() {
+  currentChatIntent?.cancel('chat-send-recovery')
+  currentChatIntent = null
+  playbackManager.stopAll('chat-send-recovery')
+  browserSpeechSynthesis?.cancel()
+  setYXZInteractionStatus('idle')
+}
+
+async function speakYXZWelcome() {
+  if (stageModelSelected.value !== 'preset-yxz' || welcomeSpeechBusy.value)
+    return
+
+  welcomeSpeechBusy.value = true
+  setYXZInteractionStatus('speaking')
+  playbackManager.stopAll('new-welcome')
+  browserSpeechSynthesis?.cancel()
+
+  try {
+    if (activeSpeechProvider.value && activeSpeechProvider.value !== 'speech-noop') {
+      welcomeSpeechNeedsGesture.value = false
+      const intent = speechRuntimeStore.openIntent({
+        ownerId: activeCardId.value,
+        priority: 'normal',
+        behavior: 'queue',
+      })
+      intent.writeLiteral(YXZ_PROACTIVE_INTRO_TEXT)
+      intent.writeFlush()
+      intent.end()
+      return
+    }
+
+    const didSpeak = await speakWithBrowserTts(YXZ_PROACTIVE_INTRO_TEXT)
+    welcomeSpeechNeedsGesture.value = !didSpeak
+    setYXZInteractionStatus(didSpeak ? 'success' : 'idle')
+  }
+  finally {
+    welcomeSpeechBusy.value = false
+  }
+}
 
 chatHookCleanups.push(onBeforeMessageComposed(async () => {
   setYXZInteractionStatus('listening')
@@ -595,6 +655,14 @@ chatHookCleanups.push(onAssistantResponseEnd(async (_message) => {
   if (nowSpeaking.value)
     return
 
+  // NOTICE: speechPipeline already streams TTS for the configured provider
+  // (e.g. minimax-audio-speech) via onTokenLiteral + writeLiteral. Re-speaking
+  // the whole reply with window.speechSynthesis here caused double playback
+  // (provider voice + browser voice at the same time). Keep browser TTS as a
+  // fallback only when no provider is configured.
+  if (activeSpeechProvider.value !== 'speech-noop' && activeSpeechProvider.value)
+    return
+
   setYXZInteractionStatus('speaking')
   const didSpeak = await speakWithBrowserTts(assistantResponseText.value)
   setYXZInteractionStatus(didSpeak ? 'success' : 'idle')
@@ -635,8 +703,11 @@ if (typeof window !== 'undefined') {
 }
 
 onMounted(async () => {
+  window.addEventListener('yxz:chat-recovery', handleYXZChatRecovery)
   db.value = drizzle({ connection: { bundles: getImportUrlBundles() } })
   await db.value.execute(`CREATE TABLE memory_test (vec FLOAT[768]);`)
+  if (stageModelSelected.value === 'preset-yxz')
+    setTimeout(() => void speakYXZWelcome(), 180)
 })
 
 watch([stageModelRenderer, () => props.paused], ([renderer]) => {
@@ -647,6 +718,14 @@ watch([stageModelRenderer, () => props.paused], ([renderer]) => {
 
   syncLipSyncLoop()
 }, { immediate: true })
+
+// A provider can fail before the first token arrives. In that path the normal
+// response hooks never run, so use the orchestrator's settled flag as a second
+// recovery signal and return the avatar to an idle, retryable state.
+watch(sending, (isSending, wasSending) => {
+  if (wasSending && !isSending && yxzInteractionStatus.value === 'thinking')
+    setYXZInteractionStatus('idle')
+})
 
 function canvasElement() {
   if (stageModelRenderer.value === 'live2d')
@@ -669,8 +748,13 @@ onUnmounted(() => {
   resetLive2dLipSync()
   browserSpeechSynthesis?.cancel()
   window.speechSynthesis?.removeEventListener('voiceschanged', syncBrowserSpeechVoice)
+  window.removeEventListener('yxz:chat-recovery', handleYXZChatRecovery)
   chatHookCleanups.forEach(dispose => dispose?.())
   viewUpdateCleanups.forEach(dispose => dispose?.())
+})
+
+watch(stageModelSelected, () => {
+  yxzRealModelFailed.value = false
 })
 
 defineExpose({
@@ -708,7 +792,7 @@ defineExpose({
         :live2d-render-scale="live2dRenderScale"
       />
       <YXZImageScene
-        v-if="stageModelRenderer === 'image' && showStage"
+        v-if="stageModelRenderer === 'image' && stageModelSelected !== 'preset-yxz' && showStage"
         v-model:state="componentState"
         min-w="50% <lg:full" min-h="100 sm:100"
         h-full w-full flex-1
@@ -719,6 +803,34 @@ defineExpose({
         :y-offset="yOffset"
         :scale="scale"
       />
+      <YXZRealModelScene
+        v-if="stageModelRenderer === 'image' && stageModelSelected === 'preset-yxz' && showStage && !yxzRealModelFailed"
+        v-model:state="componentState"
+        min-w="50% <lg:full" min-h="100 sm:100"
+        h-full w-full flex-1
+        :status="yxzInteractionStatus"
+        :speaking-level="mouthOpenSize"
+        :paused="paused"
+        @error="yxzRealModelFailed = true"
+      />
+      <YXZProceduralScene
+        v-if="stageModelRenderer === 'image' && stageModelSelected === 'preset-yxz' && showStage && yxzRealModelFailed"
+        v-model:state="componentState"
+        min-w="50% <lg:full" min-h="100 sm:100"
+        h-full w-full flex-1
+        :status="yxzInteractionStatus"
+        :paused="paused"
+      />
+      <button
+        v-if="stageModelRenderer === 'image' && stageModelSelected === 'preset-yxz'"
+        type="button"
+        class="yxz-welcome-replay"
+        :disabled="welcomeSpeechBusy"
+        aria-label="播放宜小智欢迎语"
+        @click="void speakYXZWelcome()"
+      >
+        {{ welcomeSpeechBusy ? '正在播报…' : welcomeSpeechNeedsGesture ? '🔊 点一下让我开口' : '🔊 再听一次欢迎语' }}
+      </button>
       <ThreeScene
         v-if="stageModelRenderer === 'vrm' && showStage"
         ref="vrmViewerRef"
@@ -738,3 +850,25 @@ defineExpose({
     </div>
   </div>
 </template>
+
+<style scoped>
+.yxz-welcome-replay {
+  position: absolute;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 4;
+  padding: .45rem .7rem;
+  border: 1px solid rgba(24, 168, 224, .3);
+  border-radius: .7rem;
+  background: rgba(255, 255, 255, .88);
+  color: #15547c;
+  box-shadow: 0 5px 16px rgba(27, 111, 177, .12);
+  cursor: pointer;
+  font-size: .75rem;
+}
+
+.yxz-welcome-replay:disabled {
+  cursor: wait;
+  opacity: .7;
+}
+</style>

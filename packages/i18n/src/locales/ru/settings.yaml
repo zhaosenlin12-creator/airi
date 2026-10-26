@@ -799,6 +799,9 @@ pages:
       minimax-global:
         description: Minimax.io
         title: MiniMax Глобальный
+      minimax-audio-speech:
+        description: api.minimaxi.com
+        title: MiniMax TTS
       mistral:
         description: Mistral.ai
         title: Mistral

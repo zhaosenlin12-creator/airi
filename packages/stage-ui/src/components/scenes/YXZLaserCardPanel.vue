@@ -8,7 +8,7 @@ import {
 } from '../../composables/use-yxz-print-preview'
 
 const props = defineProps<{ open: boolean }>()
-const emit = defineEmits<{ 'update:open': [open: boolean]; status: [status: string] }>()
+const emit = defineEmits<{ 'update:open': [open: boolean], 'status': [status: string] }>()
 
 interface CardResult {
   sessionId: string
@@ -231,11 +231,19 @@ onUnmounted(() => emit('status', 'idle'))
           <div class="yxz-laser-block">
             <span class="yxz-laser-block-label">正面 · 自由编辑</span>
             <div class="yxz-laser-preview" :style="frontStyle">
-              <div class="yxz-laser-preview-slogan">{{ form.slogan }}</div>
-              <div class="yxz-laser-preview-name" :style="{ fontSize: `${previewFontSize}px` }">{{ form.name || '姓名' }}</div>
-              <div class="yxz-laser-preview-role">{{ [form.title, form.unit].filter(Boolean).join(' · ') }}</div>
+              <div class="yxz-laser-preview-slogan">
+                {{ form.slogan }}
+              </div>
+              <div class="yxz-laser-preview-name" :style="{ fontSize: `${previewFontSize}px` }">
+                {{ form.name || '姓名' }}
+              </div>
+              <div class="yxz-laser-preview-role">
+                {{ [form.title, form.unit].filter(Boolean).join(' · ') }}
+              </div>
               <div class="yxz-laser-preview-accent" :style="{ background: form.accent }" />
-              <div class="yxz-laser-preview-contact">{{ form.contact }}</div>
+              <div class="yxz-laser-preview-contact">
+                {{ form.contact }}
+              </div>
             </div>
             <div class="yxz-laser-fields">
               <label>姓名 <input v-model="form.name" maxlength="12" placeholder="张老师"></label>
@@ -252,7 +260,9 @@ onUnmounted(() => emit('status', 'idle'))
           </div>
         </div>
 
-        <p v-if="errorMessage" class="yxz-laser-error" role="alert">{{ errorMessage }}</p>
+        <p v-if="errorMessage" class="yxz-laser-error" role="alert">
+          {{ errorMessage }}
+        </p>
 
         <button type="button" class="yxz-laser-submit" :disabled="isLoading" @click="generate">
           {{ isLoading ? '正在生成切割文件…' : '生成激光切割文件' }}

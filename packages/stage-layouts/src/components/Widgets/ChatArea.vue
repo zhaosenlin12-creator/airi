@@ -2,6 +2,7 @@
 import type { ChatProvider } from '@xsai-ext/providers/utils'
 
 import { isStageTamagotchi } from '@proj-airi/stage-shared'
+import { YXZLaserCardPanel } from '@proj-airi/stage-ui/components/scenes'
 import { useAudioAnalyzer } from '@proj-airi/stage-ui/composables'
 import { useAudioContext } from '@proj-airi/stage-ui/stores/audio'
 import { useChatOrchestratorStore } from '@proj-airi/stage-ui/stores/chat'
@@ -10,7 +11,6 @@ import { useConsciousnessStore } from '@proj-airi/stage-ui/stores/modules/consci
 import { useHearingSpeechInputPipeline, useHearingStore } from '@proj-airi/stage-ui/stores/modules/hearing'
 import { useProvidersStore } from '@proj-airi/stage-ui/stores/providers'
 import { useSettings, useSettingsAudioDevice } from '@proj-airi/stage-ui/stores/settings'
-import { YXZLaserCardPanel } from '@proj-airi/stage-ui/components/scenes'
 import { BasicTextarea, FieldCombobox } from '@proj-airi/ui'
 import { until, useLocalStorage } from '@vueuse/core'
 import { storeToRefs } from 'pinia'
@@ -505,7 +505,7 @@ watch(sendMode, () => {
           v-for="prompt in quickStartPrompts"
           :key="prompt"
           type="button"
-          class="rounded-full border border-primary-300/50 bg-white/80 px-2.5 py-1 text-xs text-primary-700 shadow-sm backdrop-blur transition hover:bg-white active:scale-95 dark:border-primary-500/40 dark:bg-neutral-900/70 dark:text-primary-200"
+          class="border border-primary-300/50 rounded-full bg-white/80 px-2.5 py-1 text-xs text-primary-700 shadow-sm backdrop-blur transition active:scale-95 dark:border-primary-500/40 dark:bg-neutral-900/70 hover:bg-white dark:text-primary-200"
           @click="void sendQuickStart(prompt)"
         >
           {{ prompt }}
@@ -541,7 +541,7 @@ watch(sendMode, () => {
                 'h-8 w-8 flex items-center justify-center rounded-md outline-none transition-all duration-200 active:scale-95',
                 'text-lg text-neutral-500 dark:text-neutral-400',
               ]"
-              :title="'创建'"
+              title="创建"
               aria-label="创建"
             >
               <div class="i-ph:plus-bold h-5 w-5" />

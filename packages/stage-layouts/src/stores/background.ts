@@ -8,6 +8,7 @@ import { defineStore } from 'pinia'
 import { computed, markRaw, onScopeDispose, ref, shallowRef, watch } from 'vue'
 
 import { DefaultBackgroundPreview } from '../components/Backgrounds/default'
+import activityStageUrl from '../assets/activity-stage-2026.png'
 
 export enum BackgroundKind {
   Wave = 'wave',
@@ -29,6 +30,13 @@ export const useBackgroundStore = defineStore('background', () => {
   // TODO: STORAGE_PREFIX used with multiple less maintainable `localforage` and `key.startsWith(...)` call that creates complexity.
   const STORAGE_PREFIX = 'background-'
   const presets: BackgroundItem[] = [
+    {
+      id: 'activity-stage-2026',
+      label: '活动舞台 · 2026',
+      description: '宜昌市第四届中小学生数理文化活动 现场舞台背景',
+      kind: BackgroundKind.Image,
+      src: activityStageUrl,
+    },
     {
       id: 'colorful-wave',
       label: 'Colorful Wave',
@@ -214,6 +222,12 @@ export const useBackgroundStore = defineStore('background', () => {
 
     storedOptions.value = stored
     loading.value = false
+
+    // Gentle upgrade: browsers that never customized their background and are
+    // still on the legacy default ('colorful-wave') switch to the new activity
+    // stage preset so the showcase machine opens on it out of the box.
+    if (galleryId.value === 'colorful-wave' && stored.length === 0)
+      galleryId.value = 'activity-stage-2026'
   }
 
   void loadFromIndexedDb()

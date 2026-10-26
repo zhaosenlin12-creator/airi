@@ -1,6 +1,6 @@
 export { default as WidgetStage } from './Stage.vue'
-export { default as YXZPrintPreviewPanel } from './YXZPrintPreviewPanel.vue'
 export { default as YXZLaserCardPanel } from './YXZLaserCardPanel.vue'
+export { default as YXZPrintPreviewPanel } from './YXZPrintPreviewPanel.vue'
 export {
   Live2DCanvas,
   Live2DModel,

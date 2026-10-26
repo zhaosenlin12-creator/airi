@@ -33,6 +33,29 @@ export function useVRMEmote(vrm: VRMCore) {
     return Math.min(1, Math.max(0, value))
   }
 
+  // `neutral`, `oh` and `think` are not VRM 1.0 preset expressions, so most
+  // models simply do not define them. Resolve each requested name against the
+  // model's own expression map and fall back to the nearest equivalent rather
+  // than writing a value the expression manager will silently discard.
+  // The literal name always wins, so models that *do* define these keep their
+  // intended shapes.
+  const EXPRESSION_ALIASES: Record<string, string> = {
+    neutral: 'relaxed',
+    oh: 'ou',
+    oo: 'ou',
+    think: 'relaxed',
+  }
+
+  function resolveExpressionName(name: string): string | undefined {
+    const available = vrm.expressionManager?.expressionMap
+    if (!available)
+      return undefined
+    if (name in available)
+      return name
+    const alias = EXPRESSION_ALIASES[name]
+    return alias && alias in available ? alias : undefined
+  }
+
   // Emotion states definition — values are the "full weight" targets;
   // actual applied weight is value × clamped intensity.
   // Using slightly lower values (0.7–0.8) for primary expressions to
@@ -71,6 +94,15 @@ export function useVRMEmote(vrm: VRMCore) {
         { name: 'neutral', value: 1.0 },
       ],
       blendDuration: 0.6,
+    }],
+    // The resting face. `relaxed` is a VRM 1.0 preset expression, so it is
+    // available on any conformant model, and it is the calm counterpart to
+    // the `neutral` reset above rather than a synonym for it.
+    ['relaxed', {
+      expression: [
+        { name: 'relaxed', value: 0.5 },
+      ],
+      blendDuration: 0.8,
     }],
     ['think', {
       expression: [
@@ -119,9 +151,17 @@ export function useVRMEmote(vrm: VRMCore) {
       }
     }
 
-    // Override target values for specified expressions in the emotion state
+    // Override target values for specified expressions in the emotion state.
+    // Unresolvable names are skipped: `neutral` in particular is just "every
+    // expression back to zero", which the default loop below already does.
     for (const expr of emotionState.expression || []) {
-      targetExpressionValues.value.set(expr.name, expr.value * normalizedIntensity)
+      const resolved = resolveExpressionName(expr.name)
+      if (resolved === undefined) {
+        if (expr.name !== 'neutral')
+          console.warn(`Expression "${expr.name}" is not available on this VRM; skipping it`)
+        continue
+      }
+      targetExpressionValues.value.set(resolved, expr.value * normalizedIntensity)
     }
   }
 

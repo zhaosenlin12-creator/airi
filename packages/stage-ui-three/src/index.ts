@@ -1,4 +1,8 @@
 export { default as ThreeScene } from './components/ThreeScene.vue'
+export type { YXZStatus } from './components/yxz-status'
+export { default as YXZOriginalModelScene } from './components/YXZOriginalModelScene.vue'
+export { default as YXZProceduralScene } from './components/YXZProceduralScene.vue'
+export { default as YXZRealModelScene } from './components/YXZRealModelScene.vue'
 export * from './composables/hit-test'
 export * from './composables/render-target'
 export { useModelStore } from './stores/model-store'

@@ -1,5 +1,5 @@
 import type { VRM, VRMCore } from '@pixiv/three-vrm'
-import type { Mesh, Object3D, Scene } from 'three'
+import type { AnimationClip, Mesh, Object3D, Scene } from 'three'
 
 import { VRMUtils } from '@pixiv/three-vrm'
 import { VRMLookAtQuaternionProxy } from '@pixiv/three-vrm-animation'
@@ -14,10 +14,27 @@ interface GLTFUserdata extends Record<string, any> {
 export async function loadVrm(model: string, options?: {
   scene?: Scene
   lookAt?: boolean
+  /**
+   * How the model is turned once it is in the scene.
+   *
+   * `auto` (the default) turns it around so that it faces the -Z side,
+   * which is where the rest of the stage puts its camera.  `authored` keeps
+   * the orientation the model ships with, which for a VRM 1.0 asset is the
+   * spec's "+Z faces the viewer".  The look-at maths compares the head's
+   * rest* rotation -- captured while the model was parsed -- against its
+   * current one, so the two only agree when the model is not turned after
+   * the fact; turning it afterwards makes the eyes aim somewhere else.
+   */
+  facing?: 'auto' | 'authored'
   onProgress?: (progress: ProgressEvent<EventTarget>) => void | Promise<void>
 }): Promise<{
   _vrm: VRM
   _vrmGroup: Group
+  /**
+   * Embedded glTF clips. These are plain node-TRS tracks, so an
+   *  `AnimationMixer` can play them directly without VRM humanoid conversion.
+   */
+  animations: AnimationClip[]
   modelCenter: Vector3
   modelSize: Vector3
   initialCameraOffset: Vector3
@@ -59,13 +76,13 @@ export async function loadVrm(model: string, options?: {
   const targetDirection = new Vector3(0, 0, -1) // Default facing direction
   const lookAt = _vrm.lookAt
   const quaternion = new Quaternion()
-  if (lookAt) {
+  if (lookAt && options?.facing !== 'authored') {
     const facingDirection = lookAt.faceFront
     quaternion.setFromUnitVectors(facingDirection.normalize(), targetDirection.normalize())
     _vrmGroup.quaternion.premultiply(quaternion)
     _vrmGroup.updateMatrixWorld(true)
   }
-  else {
+  else if (!lookAt) {
     console.warn('No look-at target found in VRM model')
   }
   (_vrm as VRM).springBoneManager?.reset()
@@ -126,6 +143,7 @@ export async function loadVrm(model: string, options?: {
   return {
     _vrm,
     _vrmGroup,
+    animations: gltf.animations,
     modelCenter,
     modelSize,
     initialCameraOffset,

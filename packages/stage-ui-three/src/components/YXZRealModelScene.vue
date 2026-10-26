@@ -98,6 +98,13 @@ let lastBoundsCheckAt = 0
 let motionGuardTriggered = false
 let loadToken = 0
 let frameCount = 0
+// Entrance animation: the character floats up and settles with a small bounce
+// once, right after the model mounts. -1 = not started, >=0 = running (start
+// wall-clock ms), -2 = finished.
+let introStart = -1
+// The entrance is applied to the vrm group's own scale (multiplicative), so it
+// never fights the actor scale chosen by fitActor.
+const INTRO_DURATION_MS = 1150
 // Dev-only: lets the QA capture script park the clip on an exact frame so
 // the screenshots are reproducible instead of depending on how many frames
 // the headless renderer managed to draw.
@@ -600,8 +607,11 @@ function emotionForStatus(status: YXZStatus) {
     return 'happy'
   if (status === 'processing' || status === 'thinking')
     return 'think'
+  // Listening should read as warm attention, not wide-eyed surprise: a soft
+  // smile with slightly narrowed eyes keeps the visitor engaged instead of
+  // making the character look startled by what they are saying.
   if (status === 'listening')
-    return 'surprised'
+    return 'happy'
   return 'relaxed'
 }
 
@@ -4074,6 +4084,28 @@ function animate(now: number) {
   lastFrameAt = now
   frameCount++
 
+  // Entrance: float up, settle, one small squash-and-bounce. Runs once after
+  // mount, in wall-clock time, and is fully reverted so nothing downstream
+  // ever sees a lingering offset.
+  if (introStart >= 0) {
+    const introT = Math.min(1, (now - introStart) / INTRO_DURATION_MS)
+    const settle = 1 - Math.pow(1 - introT, 3)
+    // Rise in the first third, then a soft landing bounce on the last third.
+    const bouncePhase = Math.max(0, (introT - 0.62) / 0.38)
+    const bounce = Math.sin(Math.min(1, bouncePhase) * Math.PI)
+    actor.position.y = -0.62 * (1 - settle) + 0.05 * bounce
+    if (vrmGroup) {
+      const squash = 1 + 0.075 * bounce
+      vrmGroup.scale.set(1 / Math.sqrt(squash), squash, 1 / Math.sqrt(squash))
+    }
+    if (introT >= 1) {
+      actor.position.y = 0
+      if (vrmGroup)
+        vrmGroup.scale.set(1, 1, 1)
+      introStart = -2
+    }
+  }
+
   if (!poseFrozen)
     mixer?.update(still ? 0 : delta * motionScale * lifeTimeScale)
   // The living layer runs on top of whatever the clip is doing, and it
@@ -4308,6 +4340,7 @@ onMounted(async () => {
     actor.add(vrmGroup)
     animatedModel = vrmGroup
     fitActor(vrmGroup)
+    introStart = performance.now()
     // The rest pose has to be read before the mixer starts writing to the
     // bones, because the living layer measures its motion against the
     // frame the character was built in.

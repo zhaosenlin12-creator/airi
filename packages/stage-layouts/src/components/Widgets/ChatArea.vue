@@ -149,13 +149,15 @@ async function debouncedAutoSend(text: string) {
   }, autoSendDelay.value)
 }
 
-async function sendMessage(text: string) {
+async function sendMessage(text: string, providerId?: string) {
+  const pid = providerId ?? activeProvider.value
   const operation = (async () => {
-    const providerConfig = providersStore.getProviderConfig(activeProvider.value)
+    const providerConfig = providersStore.getProviderConfig(pid)
     await ingest(text, {
-      chatProvider: await providersStore.getProviderInstance(activeProvider.value) as ChatProvider,
+      chatProvider: await providersStore.getProviderInstance(pid) as ChatProvider,
       model: activeModel.value,
       providerConfig,
+      providerId: pid,
     })
   })()
 
@@ -164,10 +166,35 @@ async function sendMessage(text: string) {
   })
 }
 
-function recoverFromSendError(error: unknown) {
+// One automatic retry per preserved message: a non-timeout failure is retried
+// once through a backup chat provider before the recovery toast surfaces.
+// Students should not have to understand provider failures at all.
+let lastAutoRetriedText = ''
+
+async function recoverFromSendError(error: unknown) {
   // Keep implementation details in the console only. The conversation should
   // remain readable and actionable for a visitor at the exhibition.
   const timedOut = error instanceof ChatSendTimeoutError
+  const retryText = pendingAutoSendText.value.trim() || messageInput.value.trim()
+
+  if (!timedOut && retryText && retryText !== lastAutoRetriedText) {
+    const configuredChat = providersStore.configuredChatProvidersMetadata ?? []
+    const backup = configuredChat.find(meta => meta.id !== activeProvider.value)
+    if (backup) {
+      lastAutoRetriedText = retryText
+      toast.info(`自动切换到备用模型重试…`)
+      try {
+        await sendMessage(retryText, backup.id)
+        pendingAutoSendText.value = ''
+        messageInput.value = ''
+        return
+      }
+      catch (retryError) {
+        console.warn('[ChatArea] Backup provider retry failed:', retryError)
+      }
+    }
+  }
+
   console.error('[ChatArea] Send recovery:', error)
   notifyYXZChatRecovery()
   toast.error(timedOut ? '连接等待时间较长' : '刚才没有连接成功', {

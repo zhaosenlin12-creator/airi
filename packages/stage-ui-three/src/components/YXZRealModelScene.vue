@@ -1616,7 +1616,7 @@ const LIFE_BONES: {
   // reads as a tic.  The only things that may move this bone are the
   // walk, the attention model, and the small movements -- all three of
   // which are further down, and none of which is a drift.
-  { bone: 'head', drift: 0, gain: 0, micro: 0.02, breath: 0, lag: 0.46, rate: 0.019, phase: 6.5, cell: 22.7, follow: 0, drive: 'head' },
+  { bone: 'head', drift: 0, gain: 0, micro: 0.06, breath: 0.045, lag: 0.46, rate: 0.019, phase: 6.5, cell: 22.7, follow: 0, drive: 'head' },
   // The arms and the wings ride on the shoulders, so they take the
   // shoulder rise and very little of their own.  They used to take a
   // seventh of a degree each on top of the chest's third, which put
@@ -2635,24 +2635,23 @@ let lifeGazeStrength = 0
 
 // Debug switches, so the held pose and the old behaviour can be compared
 // against each other without a rebuild: `?noCalm=1` leaves the clips as
-// they were authored, `?motion=1` brings the behaviour layer back, and
-// `?authored=1` brings the authored idle back.  `?noLife=1` is still
-// honoured, and still turns the behaviour layer off.
+// they were authored, `?authored=1` brings the authored idle back.
 //
-// The behaviour layer is off by default.  It was the layer that gave the
-// figure its drift, its weight shift and its small gestures, and it was
-// also the layer that fought the clips for the same bones: four writers
-// on one skeleton, each with its own clock, is what the eye reads as a
-// figure coming apart.  The character stands still now, and the life it
-// has is in the face.
+// The behaviour layer is on by default.  It carries the small gestures --
+// nod, lift, tilt, glance, the gaze and the breath -- that keep the figure
+// from reading as a mannequin between sentences.  Everything it moves is
+// low-gain and on its own clock, and the bones it owns are the head, the
+// arms (held), the wings and the ring; the authored idle keeps the
+// skeleton, so no bone is written twice and nothing distorts.
+// `?noLife=1` turns the layer off for comparison.
 let calmEnabled = true
-let lifeEnabled = false
+let lifeEnabled = true
 let authoredEnabled = false
 
 function readMotionFlags() {
   const params = new URLSearchParams(window.location.search)
   calmEnabled = !params.has('noCalm')
-  lifeEnabled = params.has('motion') && !params.has('noLife')
+  lifeEnabled = !params.has('noLife')
   authoredEnabled = params.has('authored')
 }
 

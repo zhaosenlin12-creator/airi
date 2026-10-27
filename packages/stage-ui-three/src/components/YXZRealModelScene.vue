@@ -32,11 +32,25 @@ const props = withDefaults(defineProps<{
   speakingLevel?: number
   paused?: boolean
   src?: string
+  // Where the stage wants the character to sit.
+  //
+  // The home page floats the chat column over the right half of the
+  // stage, so a character centred in the canvas is half covered.  The
+  // stage already carries an offset and a scale for its other scenes;
+  // these are the same numbers, read the same way, so the 3D
+  // character can be pushed clear of the panel without the page
+  // having to know anything about cameras.
+  xOffset?: number | string
+  yOffset?: number | string
+  scale?: number
 }>(), {
   status: 'idle',
   speakingLevel: 0,
   paused: false,
   src: yxzVrmUrl,
+  xOffset: 0,
+  yOffset: 0,
+  scale: 1,
 })
 
 const emit = defineEmits<{
@@ -538,6 +552,30 @@ function emotionForStatus(status: YXZStatus) {
   return 'relaxed'
 }
 
+// The stage's offset, read as a fraction of the canvas.
+//
+// The stage hands the offset over as a number of percent, or as a CSS
+// length, because that is what the other scenes on the stage already
+// take.  A percent is a percent of the canvas; a pixel length is a
+// pixel length, and it is divided by the canvas to make it a fraction
+// of the same thing.
+function stageOffsetFraction(value: number | string | undefined, basis: number): number {
+  if (typeof value === 'number')
+    return Number.isFinite(value) ? value / 100 : 0
+  const text = String(value ?? '').trim()
+  if (!text)
+    return 0
+  const amount = Number.parseFloat(text)
+  if (!Number.isFinite(amount))
+    return 0
+  if (text.endsWith('%'))
+    return amount / 100
+  if (text.endsWith('px'))
+    return amount / Math.max(1, basis)
+  // A bare number in a string is a pixel length, the way CSS reads it.
+  return amount / Math.max(1, basis)
+}
+
 function resize() {
   if (!renderer || !camera || !canvasContainer.value)
     return
@@ -546,8 +584,24 @@ function resize() {
   camera.aspect = width / height
   // Keep the whole silhouette inside narrow embeds as well as desktop stages.
   const halfFov = THREE.MathUtils.degToRad(camera.fov * 0.5)
-  camera.position.z = Math.max(8.8, baselineWorldSize.x * 0.65 / (Math.tan(halfFov) * camera.aspect))
-  camera.lookAt(0, 2.05, 0)
+  const distance = Math.max(8.8, baselineWorldSize.x * 0.65 / (Math.tan(halfFov) * camera.aspect))
+  // The stage's zoom.  A bigger character is a closer camera, not a
+  // scaled model, so the light and the shadow stay where they were put.
+  const zoom = Math.max(0.1, props.scale || 1)
+  camera.position.z = distance / zoom
+  // And the stage's nudge.
+  //
+  // The camera pans rather than the model moving, so the character
+  // keeps its own place in the world -- the shadow it casts, the light
+  // on it and the ground it stands on do not travel with it.  The
+  // offset is a fraction of the canvas, which is what makes the same
+  // number work on a phone and on a desktop.
+  const visibleWidth = 2 * camera.position.z * Math.tan(halfFov) * camera.aspect
+  const visibleHeight = 2 * camera.position.z * Math.tan(halfFov)
+  const targetX = -stageOffsetFraction(props.xOffset, width) * visibleWidth
+  const targetY = -stageOffsetFraction(props.yOffset, height) * visibleHeight
+  camera.position.set(targetX, 2.25 + targetY, camera.position.z)
+  camera.lookAt(targetX, 2.05 + targetY, 0)
   camera.updateProjectionMatrix()
   renderer.setSize(width, height, false)
   // `composer.setSize` forwards to every pass, which is what keeps the edge
@@ -4822,6 +4876,15 @@ watch(() => props.status, (status) => {
   selectAction()
   emote?.setEmotion(emotionForStatus(status))
 })
+
+// The stage can move the character after the scene is up -- the chat
+// column opens, the window changes shape -- and the camera has to
+// follow, or the character stays where it was and ends up under the
+// panel again.
+watch(
+  () => [props.xOffset, props.yOffset, props.scale],
+  () => resize(),
+)
 
 onUnmounted(() => {
   loadToken++

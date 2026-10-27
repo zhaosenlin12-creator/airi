@@ -811,6 +811,9 @@ defineExpose({
         :status="yxzInteractionStatus"
         :speaking-level="mouthOpenSize"
         :paused="paused"
+        :x-offset="xOffset"
+        :y-offset="yOffset"
+        :scale="scale"
         @error="yxzRealModelFailed = true"
       />
       <YXZProceduralScene

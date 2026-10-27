@@ -4853,7 +4853,13 @@ onUnmounted(() => {
 
 .yxz-real-model-bubble {
   position: absolute;
-  top: 4%;
+  /*
+   * The bubble is anchored to the top of the scene by default, which is
+   * where it belongs on a page that is nothing but the character.  A page
+   * that puts a title over the stage can move it out of the way without
+   * this component having to know that such a page exists.
+   */
+  top: var(--yxz-bubble-top, 4%);
   left: 50%;
   z-index: 2;
   display: flex;

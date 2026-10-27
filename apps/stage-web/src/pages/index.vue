@@ -179,6 +179,7 @@ watch([stream, () => vadLoaded.value], async ([s, loaded]) => {
       <!-- page -->
       <div relative flex="~ 1 row gap-y-0 gap-x-2 <md:col">
         <WidgetStage
+          style="--yxz-bubble-top: 12%"
           flex-1 min-w="1/2"
           :paused="paused"
           :focus-at="{

@@ -67,7 +67,12 @@ for (const route of ROUTES) {
   })
 
   await page.goto(`${baseUrl}${route}`, { waitUntil: 'domcontentloaded', timeout: 120_000 })
-  await page.waitForTimeout(28_000)
+  // A cold dev server re-optimises its dependencies on the first hit,
+  // and the character is a 37 MB model on top of that, so the page can
+  // sit blank for a while.  Wait for the canvas rather than for the
+  // clock: a screenshot of a loading screen says nothing.
+  await page.waitForSelector('.yxz-real-model-canvas canvas, .yxz-procedural-scene canvas, .yxz-canvas-frame canvas', { timeout: 180_000 })
+  await page.waitForTimeout(12_000)
 
   const info = await page.evaluate(() => {
     const real = document.querySelector('.yxz-real-model-canvas canvas')
